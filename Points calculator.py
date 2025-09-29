@@ -8,7 +8,7 @@ in a robotics competition based on user-defined inputs.
 
 # --- Constants for Game Periods and Points ---
 AUTO_PERIOD_TIME = 30
-TELEOP_PERIOD_TIME = 846  # 1 minute and 40 seconds
+TELEOP_PERIOD_TIME = 84 # 1  minute and 40 seconds
 ENDGAME_PERIOD_TIME = 20
 PARKING_TIME = 3
 
