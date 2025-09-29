@@ -3,13 +3,30 @@ from PIL import Image, ImageTk
 import math
 
 # --- Adjustable variables (in CM) ---
-square_width_cm = 20  # horizontal size in cm
+square_width_cm = 20   # horizontal size in cm
 square_height_cm = 20  # vertical size in cm
-square_centers = []  # List to store square centers
-current_angle = 0  # Angle for new squares (degrees)
+square_centers = []    # List to store square centers
+current_angle = 0      # Angle for new squares (degrees)
 
-# --- Conversion ---
-cm_to_pixels = 10  # 1 cm = 10 pixels (adjust based on field image scale)
+# --- Real field dimensions ---
+field_size_cm = 366  # 12 ft = 366 cm
+
+# --- Main Window ---
+root = tk.Tk()
+root.title("Game Plan GUI")
+
+# Load background field image
+image_path = "/Users/mishmash/Desktop/coading/Robot_stratagy/Field top view .png"  # <-- replace with your image
+img = Image.open(image_path)
+img = img.resize((1100, 800))  # keep your field photo resolution
+tk_img = ImageTk.PhotoImage(img)
+
+# --- Conversion: cm → pixels (based on image and real field size) ---
+px_per_cm_x = img.width / field_size_cm
+px_per_cm_y = img.height / field_size_cm
+
+# Use the smaller value to keep robots square
+px_per_cm = min(px_per_cm_x, px_per_cm_y)
 
 
 def place_square(event):
@@ -17,8 +34,8 @@ def place_square(event):
     x, y = event.x, event.y
 
     # Convert size from cm to pixels
-    width_px = square_width_cm * cm_to_pixels
-    height_px = square_height_cm * cm_to_pixels
+    width_px = square_width_cm * px_per_cm
+    height_px = square_height_cm * px_per_cm
 
     # Draw square
     canvas.create_rectangle(
@@ -65,28 +82,18 @@ def adjust_size(event):
     angle_label.config(text=f"Angle: {current_angle}°")
 
 
-# --- Main Window ---
-root = tk.Tk()
-root.title("Game Plan GUI")
-
-# Load background field image
-image_path = "/Users/mishmash/Desktop/coading/Robot_stratagy/Field top view .png"  # <-- replace with your image
-img = Image.open(image_path)
-img = img.resize((800, 600))
-tk_img = ImageTk.PhotoImage(img)
-
-# Canvas
+# --- Canvas ---
 canvas = tk.Canvas(root, width=img.width, height=img.height)
 canvas.pack()
 canvas.create_image(0, 0, anchor="nw", image=tk_img)
 
-# Labels
+# --- Labels ---
 size_label = tk.Label(root, text=f"Size: {square_width_cm}cm x {square_height_cm}cm")
 size_label.pack()
 angle_label = tk.Label(root, text=f"Angle: {current_angle}°")
 angle_label.pack()
 
-# Bind events
+# --- Bind events ---
 canvas.bind("<Button-1>", place_square)
 root.bind("<Key>", adjust_size)
 
