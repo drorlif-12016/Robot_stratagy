@@ -9,3 +9,6 @@ GUI controls
  q/e - increase/decrease the robot's vertical
 
 click - add a new robot position
+
+The robot size to tile rate : 
+17 inch = 24 inch tile 
