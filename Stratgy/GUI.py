@@ -1,6 +1,8 @@
 import tkinter as tk
+from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import math
+import os
 
 # --- Adjustable variables (in INCHES) ---
 square_size_in = 18   # robot size (in inches, example: 18" x 18")
@@ -14,12 +16,22 @@ field_size_in = 144
 root = tk.Tk()
 root.title("Game Plan GUI")
 
-# Load background field image
-image_path = "Enter field pic path"  # field photo you uploaded
+# --- Load background field image ---
+# Default path
+image_path = "/Users/mishmash/Desktop/coading/Robot_stratagy/Field_picture/Juice-DECODE-Light.png"
+
+if not os.path.exists(image_path):
+    messagebox.showwarning("File not found",
+                           f"Could not find field image:\n{image_path}\n\nPlease select manually.")
+    image_path = filedialog.askopenfilename(
+        title="Select Field Image",
+        filetypes=[("Image Files", "*.png *.jpg *.jpeg")]
+    )
+
 img = Image.open(image_path)
 
 # Fit the image into a window (keep aspect ratio)
-window_size = 800
+window_size = 600   
 scale_factor = min(window_size / img.width, window_size / img.height)
 new_width = int(img.width * scale_factor)
 new_height = int(img.height * scale_factor)
