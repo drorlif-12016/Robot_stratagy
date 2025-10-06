@@ -17,8 +17,8 @@ root = tk.Tk()
 root.title("Game Plan GUI")
 
 # --- Load background field image ---
-# Default path
-image_path = "/Users/mishmash/Desktop/coading/Robot_stratagy/Field_picture/Juice-DECODE-Light.png"
+# Default path (your /user/documents/Robot_stratagy/...)
+image_path = "Enter root for image here"
 
 if not os.path.exists(image_path):
     messagebox.showwarning("File not found",
