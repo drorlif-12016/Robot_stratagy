@@ -10,5 +10,4 @@ GUI controls
 
 click - add a new robot position
 
-The robot size to tile rate : 
-17 inch = 24 inch tile 
+the robot is 1:1 for the field 24 Inch robot = 24 Inch tile 

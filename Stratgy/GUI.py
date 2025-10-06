@@ -5,9 +5,9 @@ import math
 import os
 
 # --- Adjustable variables (in INCHES) ---
-square_size_in = 18   # robot size (in inches, example: 18" x 18")
+square_size_in = 24   # robot size (in inches, example: 18" x 18")
 square_centers = []   # List to store square centers
-current_angle = 0     # Angle for new squares (degrees)
+current_angle = 0# Angle for new squares (degrees)
 
 # --- Real field dimensions (12 ft = 144 inches) ---
 field_size_in = 144
@@ -31,7 +31,7 @@ if not os.path.exists(image_path):
 img = Image.open(image_path)
 
 # Fit the image into a window (keep aspect ratio)
-window_size = 600   
+window_size = 600
 scale_factor = min(window_size / img.width, window_size / img.height)
 new_width = int(img.width * scale_factor)
 new_height = int(img.height * scale_factor)
