@@ -21,7 +21,7 @@ PATTERN_POINTS = 2  # 2 points per cycle
 # --- Robot/Game Config ---
 ARTIFACTS_PER_CYCLE = 3
 CYCLES_BEFORE_GATE_OPENS = 3
-GATE_OPEN_DELAY = 2  # seconds per opening
+GATE_OPEN_DELAY = 1.5  # seconds per opening
 
 
 def calculate_performance():
@@ -128,7 +128,7 @@ def calculate_performance():
     print(f"Classified Artifacts Scored: {classified_cycles * ARTIFACTS_PER_CYCLE} ({classified_points} points)")
     print(f"  • of which were sorted   : {sorted_classified * ARTIFACTS_PER_CYCLE} (+{sorted_bonus_points} bonus points)")
     print(f"Overflow Artifacts Scored  : {overflow_cycles * ARTIFACTS_PER_CYCLE} ({overflow_points} points)")
-    print(f"Pattern points overall     : {pattern_points} points (from {total_cycles} cycles)")
+    print(f"Pattern points overall     : {pattern_points} points")
     print("---------------------------------")
     print(f"Total Estimated Points     : {int(total_points)}")
     print("=" * 40)
