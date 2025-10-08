@@ -10,4 +10,6 @@ GUI controls
 
 click - add a new robot position
 
+Delete key - deletes last position 
+
 the robot is 1:1 for the field 24 Inch robot = 24 Inch tile 
