@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk, ImageGrab
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas as pdf_canvas
 import math
 import os
 import datetime
@@ -12,7 +14,7 @@ current_angle = 0  # Orientation
 field_size_in = 144  # 12 ft = 144 in
 
 # --- Data storage ---
-positions = []  # [(x, y, name, note)]
+positions = []  # [{x, y, name, note}]
 square_items = []
 connection_lines = []
 
@@ -21,7 +23,7 @@ root = tk.Tk()
 root.title("Robot Game Plan GUI")
 
 # --- Load field image ---
-image_path = "Enter root for image here"
+image_path = "/Users/mishmash/Desktop/coading/Robot_stratagy/Field_picture/Juice-DECODE-Light.png"
 if not os.path.exists(image_path):
     messagebox.showwarning("File not found",
                            f"Could not find field image:\n{image_path}\n\nPlease select manually.")
@@ -43,47 +45,44 @@ px_per_in = img.width / field_size_in
 main_frame = tk.Frame(root)
 main_frame.pack(fill=tk.BOTH, expand=True)
 
-# --- Canvas on left ---
+# --- Canvas (left) ---
 canvas_frame = tk.Frame(main_frame)
 canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
 canvas = tk.Canvas(canvas_frame, width=img.width, height=img.height)
 canvas.pack()
 canvas.create_image(0, 0, anchor="nw", image=tk_img)
 
-# --- Sidebar on right ---
+# --- Sidebar (right) ---
 sidebar = tk.Frame(main_frame, width=300, bg="#000000")
 sidebar.pack(side=tk.RIGHT, fill=tk.Y)
 sidebar.pack_propagate(False)
 
-tk.Label(sidebar, text="Position Editor", font=("Arial", 14, "bold"), bg="#000000").pack(pady=10)
+tk.Label(sidebar, text="Position Editor", font=("Arial", 14, "bold"), fg="white", bg="#000000").pack(pady=10)
 
-# Treeview for list of positions
+# Treeview
 tree = ttk.Treeview(sidebar, columns=("Name", "Notes"), show="headings", height=10)
 tree.heading("Name", text="Name")
 tree.heading("Notes", text="Notes")
 tree.pack(fill=tk.X, padx=5, pady=5)
 
 # Inputs
-tk.Label(sidebar, text="Name:", bg="#000000").pack(anchor="w", padx=10)
+tk.Label(sidebar, text="Name:", fg="white", bg="#000000").pack(anchor="w", padx=10)
 name_entry = tk.Entry(sidebar)
 name_entry.pack(fill=tk.X, padx=10, pady=2)
 
-tk.Label(sidebar, text="Notes:", bg="#000000").pack(anchor="w", padx=10)
+tk.Label(sidebar, text="Notes:", fg="white", bg="#000000").pack(anchor="w", padx=10)
 note_entry = tk.Text(sidebar, height=4)
 note_entry.pack(fill=tk.X, padx=10, pady=2)
 
-# Status labels
-size_label = tk.Label(sidebar, text=f"Size: {square_size_in} in", bg="#000000")
+# Labels
+size_label = tk.Label(sidebar, text=f"Size: {square_size_in} in", fg="white", bg="#000000")
 size_label.pack(pady=5)
-angle_label = tk.Label(sidebar, text=f"Angle: {current_angle}°", bg="#000000")
+angle_label = tk.Label(sidebar, text=f"Angle: {current_angle}°", fg="white", bg="#000000")
 angle_label.pack(pady=5)
-angle_label.pack(pady=5)
-
 
 # --- Functions ---
 def place_square(event):
-    """Place a robot position with square and line"""
+    """Draw a robot square + orientation line"""
     global current_angle
     x, y = event.x, event.y
     size_px = square_size_in * px_per_in
@@ -103,26 +102,21 @@ def place_square(event):
     square_items.append((square_id, orient_id))
     positions.append({"x": x, "y": y, "name": f"Pos {len(positions)+1}", "note": ""})
 
-    # Add connection line
     if len(positions) > 1:
         prev = positions[-2]
         line_id = canvas.create_line(prev["x"], prev["y"], x, y, fill="blue", width=2)
         connection_lines.append(line_id)
 
-    # Update sidebar
     refresh_tree()
 
 
 def refresh_tree():
-    """Refresh sidebar list"""
-    for i in tree.get_children():
-        tree.delete(i)
+    tree.delete(*tree.get_children())
     for i, pos in enumerate(positions):
         tree.insert("", "end", iid=i, values=(pos["name"], pos["note"]))
 
 
 def select_position(event):
-    """When clicking a row in sidebar"""
     selected = tree.selection()
     if not selected:
         return
@@ -135,10 +129,9 @@ def select_position(event):
 
 
 def save_changes():
-    """Update position info"""
     selected = tree.selection()
     if not selected:
-        messagebox.showwarning("No selection", "Please select a position to edit.")
+        messagebox.showwarning("No selection", "Select a position to edit.")
         return
     idx = int(selected[0])
     positions[idx]["name"] = name_entry.get()
@@ -147,7 +140,6 @@ def save_changes():
 
 
 def adjust_size(event):
-    """W/S for size, Q/E for angle"""
     global square_size_in, current_angle
     if event.keysym == "w":
         square_size_in += 1
@@ -157,13 +149,11 @@ def adjust_size(event):
         current_angle = (current_angle - 10) % 360
     elif event.keysym == "e":
         current_angle = (current_angle + 10) % 360
-
     size_label.config(text=f"Size: {square_size_in} in")
     angle_label.config(text=f"Angle: {current_angle}°")
 
 
 def delete_last_square(event=None):
-    """Delete last position"""
     if not square_items:
         return
     square_id, orient_id = square_items.pop()
@@ -176,14 +166,11 @@ def delete_last_square(event=None):
 
 
 def animate_path():
-    """Animate robot movement"""
     if len(positions) < 2:
         messagebox.showwarning("No Path", "Place at least two positions to animate.")
         return
-
     size_px = square_size_in * px_per_in
     robot = canvas.create_rectangle(0, 0, size_px, size_px, outline="yellow", width=3)
-
     for i in range(len(positions) - 1):
         x1, y1 = positions[i]["x"], positions[i]["y"]
         x2, y2 = positions[i + 1]["x"], positions[i + 1]["y"]
@@ -200,37 +187,60 @@ def animate_path():
 
 
 def export_all():
-    """Export field + text summary"""
+    """Export field image + notes as ONE PDF"""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    img_filename = f"field_export_{timestamp}.png"
-    text_filename = f"field_notes_{timestamp}.txt"
+    pdf_filename = f"robot_field_plan_{timestamp}.pdf"
+    temp_img = f"_temp_{timestamp}.png"
 
-    # Save canvas as image
+    # Grab canvas as image
     x = root.winfo_rootx() + canvas.winfo_x()
     y = root.winfo_rooty() + canvas.winfo_y()
     x1 = x + canvas.winfo_width()
     y1 = y + canvas.winfo_height()
-    ImageGrab.grab(bbox=(x, y, x1, y1)).save(img_filename)
+    ImageGrab.grab(bbox=(x, y, x1, y1)).save(temp_img)
 
-    # Save notes
-    with open(text_filename, "w", encoding="utf-8") as f:
-        f.write("Robot Position Notes\n")
-        f.write("====================\n\n")
-        for i, p in enumerate(positions):
-            f.write(f"{i+1}. {p['name']}\n")
-            f.write(f"   Note: {p['note']}\n")
-            f.write(f"   Coordinates: ({int(p['x'])}, {int(p['y'])})\n\n")
+    # --- Create PDF ---
+    c = pdf_canvas.Canvas(pdf_filename, pagesize=letter)
+    width, height = letter
 
-    messagebox.showinfo("Export Complete",
-                        f"Saved:\n• {img_filename}\n• {text_filename}")
+    # Page 1: Field image
+    img_width, img_height = Image.open(temp_img).size
+    aspect = img_height / img_width
+    display_width = width - 100
+    display_height = display_width * aspect
+    c.drawImage(temp_img, 50, height - display_height - 50, width=display_width, height=display_height)
+    c.showPage()
+
+    # Page 2: Notes
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, height - 50, "Robot Position Notes")
+    c.setFont("Helvetica", 12)
+    y_cursor = height - 90
+    for i, p in enumerate(positions):
+        text = f"{i+1}. {p['name']}  (x={int(p['x'])}, y={int(p['y'])})"
+        c.drawString(50, y_cursor, text)
+        y_cursor -= 15
+        if p["note"]:
+            c.setFont("Helvetica-Oblique", 11)
+            c.drawString(70, y_cursor, f"Note: {p['note']}")
+            c.setFont("Helvetica", 12)
+            y_cursor -= 25
+        if y_cursor < 50:
+            c.showPage()
+            y_cursor = height - 50
+
+    c.save()
+    os.remove(temp_img)
+
+    messagebox.showinfo("Export Complete", f"PDF saved as:\n{pdf_filename}")
 
 
 # --- Buttons ---
 btn_frame = tk.Frame(sidebar, bg="#000000")
 btn_frame.pack(pady=10)
-tk.Button(btn_frame, text="💾 Save Changes", command=save_changes).pack(side=tk.LEFT, padx=0)
-tk.Button(btn_frame, text="▶ Animate Path", command=animate_path).pack(side=tk.LEFT, padx=0)
-tk.Button(sidebar, text="📤 Export All", command=export_all, bg="#000000").pack(fill=tk.X, padx=0, pady=0)
+tk.Button(btn_frame, text="💾 Save Changes", command=save_changes).pack(side=tk.LEFT, padx=3)
+tk.Button(btn_frame, text="▶ Animate Path", command=animate_path).pack(side=tk.LEFT, padx=3)
+tk.Button(sidebar, text="📤 Export All (PDF)", command=export_all, bg="#222222", fg="white").pack(fill=tk.X, padx=10, pady=10)
 
 # --- Bindings ---
 canvas.bind("<Button-1>", place_square)
