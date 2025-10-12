@@ -118,8 +118,9 @@ import os, json, glob
 def load_ftc_credentials():
 
     import os, json, glob, streamlit as st, hashlib
+#TODO: change the pathes if the API dose not recognize the path
 
-    FIXED_PATH   = r"C:\Users\RoboMentor\Robot_stratagy\Scouting"
+    FIXED_PATH   = r"/Users/mishmash/Desktop/coading/Robot_stratagy/Scouting"
     ROAMING_PATH = r"C:\Users\RoboMentor\AppData\Roaming\mae_scout"
 
     def _try_read(path):
