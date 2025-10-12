@@ -1,10 +1,10 @@
-
 # MAE Scouting – patch13n19d
 # Change from 13n19c: **Family unification rule**
 # - Any event code that starts with "ILCMP" is mapped to the same family "ILCMP".
 #   This unifies Israeli Championship divisions (e.g., ILCMPHDRO / ILCMPSOLR / ILCMPARC / ILCMPPCF) with ILCMP finals.
 # Everything else identical to 13n19c.
 
+import streamlit as st
 import os, json, pathlib, typing as t, math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -20,9 +20,11 @@ try:
 except Exception:
     _META = {}
 
+
 def _key_for(path, params):
     s = path + "|" + "&".join(f"{k}={params[k]}" for k in sorted(params.keys())) if params else path
     return _hashlib.sha1(s.encode("utf-8")).hexdigest()
+
 
 def _read_body(key):
     p = _FTC_HTTP_DIR / f"{key}.json"
@@ -33,14 +35,15 @@ def _read_body(key):
             return None
     return None
 
+
 def _write_body(key, body):
     p = _FTC_HTTP_DIR / f"{key}.json"
     p.write_text(_json.dumps(body), encoding="utf-8")
 
+
 def _save_meta():
     _FTC_META.parent.mkdir(parents=True, exist_ok=True)
     _FTC_META.write_text(_json.dumps(_META, indent=2), encoding="utf-8")
-
 
 
 import numpy as np
@@ -49,23 +52,25 @@ import requests
 import streamlit as st
 import re
 
+
 def dedupe_teams_master(teams_master: "pd.DataFrame", ev_view: "pd.DataFrame") -> "pd.DataFrame":
     import pandas as pd
     if teams_master is None or not isinstance(teams_master, pd.DataFrame) or teams_master.empty:
-        return pd.DataFrame(columns=["team","team_name","country","ev","ev_family"])
-    ev_dates = ev_view.rename(columns={"event_code":"ev"})[["ev","start_dt"]].drop_duplicates()
+        return pd.DataFrame(columns=["team", "team_name", "country", "ev", "ev_family"])
+    ev_dates = ev_view.rename(columns={"event_code": "ev"})[["ev", "start_dt"]].drop_duplicates()
     tm = teams_master.merge(ev_dates, on="ev", how="left")
     if "start_dt" in tm.columns:
-        tm = tm.sort_values(["team","start_dt","ev_family","ev"])
+        tm = tm.sort_values(["team", "start_dt", "ev_family", "ev"])
     else:
         tm["__ord__"] = range(len(tm))
-        tm = tm.sort_values(["team","__ord__"])
+        tm = tm.sort_values(["team", "__ord__"])
     tm = tm.drop_duplicates(subset=["team"], keep="last")
-    keep_cols = [c for c in ["team","team_name","country","ev","ev_family","start_dt"] if c in tm.columns]
+    keep_cols = [c for c in ["team", "team_name", "country", "ev", "ev_family", "start_dt"] if c in tm.columns]
     return tm[keep_cols]
 
+
 @st.cache_data(ttl=900, show_spinner=False)
-def events_list_cached(season:int):
+def events_list_cached(season: int):
     """
     Cached wrapper for events_list(season).
     Ensures a DataFrame is returned and that a 'country' column exists.
@@ -78,17 +83,18 @@ def events_list_cached(season:int):
         except Exception:
             pass
         import pandas as pd
-        return pd.DataFrame(columns=["event_code","name","country","start_dt"])
+        return pd.DataFrame(columns=["event_code", "name", "country", "start_dt"])
     import pandas as pd
     if not isinstance(df, pd.DataFrame):
-        df = pd.DataFrame(columns=["event_code","name","country","start_dt"])
+        df = pd.DataFrame(columns=["event_code", "name", "country", "start_dt"])
     if "country" not in df.columns:
         # fallback: try 'region' or fill empty
         df["country"] = df["region"] if "region" in df.columns else ""
     return df
 
+
 @st.cache_data(ttl=900, show_spinner=True)
-def _safe_dataset(season:int, country:str, max_workers:int):
+def _safe_dataset(season: int, country: str, max_workers: int):
     """
     Guaranteed to return a 3-tuple of DataFrames.
     Falls back to last_dataset in session_state or empty DFs.
@@ -111,9 +117,10 @@ def _safe_dataset(season:int, country:str, max_workers:int):
     st.session_state["last_dataset"] = (ev_view, base_raw, teams_master)
     return (ev_view, base_raw, teams_master)
 
+
 # ===== Cached dataset + signatures to avoid re-compute between tabs =====
 @st.cache_data(ttl=900, show_spinner=False)
-def _cached_dataset(season:int, country:str, max_workers:int):
+def _cached_dataset(season: int, country: str, max_workers: int):
     try:
         ev_view, base_raw, teams_master = _safe_dataset(int(season), str(country), int(max_workers))
     except Exception:
@@ -122,7 +129,6 @@ def _cached_dataset(season:int, country:str, max_workers:int):
         import pandas as pd
         return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
     return (ev_view, base_raw, teams_master)
-
 
 
 # ===== Helpers for Event (Live) tab =====
@@ -136,13 +142,14 @@ def _ev_col(df, candidates):
         if c.lower() in low: return low[c.lower()]
     return None
 
+
 def _latest_event_code(ev_df):
     if ev_df is None or ev_df.empty:
         return None, None
-    code_col = _ev_col(ev_df, ["eventCode","code","ev","event_code"])
-    name_col = _ev_col(ev_df, ["name","eventName","event_name"])
-    end_col  = _ev_col(ev_df, ["end_dt","endDate","end","end_date"])
-    start_col= _ev_col(ev_df, ["start_dt","startDate","start","start_date"])
+    code_col = _ev_col(ev_df, ["eventCode", "code", "ev", "event_code"])
+    name_col = _ev_col(ev_df, ["name", "eventName", "event_name"])
+    end_col = _ev_col(ev_df, ["end_dt", "endDate", "end", "end_date"])
+    start_col = _ev_col(ev_df, ["start_dt", "startDate", "start", "start_date"])
     df = ev_df.copy()
     if end_col and df[end_col].notna().any():
         df = df.sort_values(by=[end_col], ascending=[True])
@@ -151,19 +158,22 @@ def _latest_event_code(ev_df):
     row = df.iloc[-1]
     return (row.get(code_col, None), row.get(name_col, None))
 
+
 def _teams_in_event_from_base(base_df, ev_code):
     import re
     import pandas as pd
     if base_df is None or base_df.empty or ev_code is None:
         return []
+
     def _ev_col(df, candidates):
         for c in candidates:
             if c in df.columns:
                 return c
         low = [c for c in df.columns if "event" in c.lower() and "code" in c.lower()]
         return low[0] if low else None
-    evcol = _ev_col(base_df, ["eventCode","event_code","ev","code"])
-    famcol = _ev_col(base_df, ["ev_family","family","event_family","family_code"])
+
+    evcol = _ev_col(base_df, ["eventCode", "event_code", "ev", "code"])
+    famcol = _ev_col(base_df, ["ev_family", "family", "event_family", "family_code"])
     b = base_df.copy()
     family_target = None
     if evcol is not None and famcol is not None:
@@ -188,17 +198,23 @@ def _teams_in_event_from_base(base_df, ev_code):
         except Exception:
             pass
     return sorted(list(teams))
+
+
 def _team_col(df):
-    return _ev_col(df, ["team","teamNumber","team_number","number"])
+    return _ev_col(df, ["team", "teamNumber", "team_number", "number"])
+
 
 def _epa_col(df):
-    return _ev_col(df, ["EPA","epa","epa_final","epaMean","opr","OPR"])
+    return _ev_col(df, ["EPA", "epa", "epa_final", "epaMean", "opr", "OPR"])
+
 
 def _adv_team_col(df):
-    return _ev_col(df, ["team","teamNumber","team_number","number"])
+    return _ev_col(df, ["team", "teamNumber", "team_number", "number"])
+
 
 def _adv_points_col(df):
-    return _ev_col(df, ["AdvancementPoints","adv_points","adv","totalPoints","total_points"])
+    return _ev_col(df, ["AdvancementPoints", "adv_points", "adv", "totalPoints", "total_points"])
+
 
 def dataset_signature(ev_view, base_raw, teams_master):
     try:
@@ -210,7 +226,8 @@ def dataset_signature(ev_view, base_raw, teams_master):
             last_dt = str(ev_view["start_dt"].max())
         return (n_ev, n_base, n_team, last_dt)
     except Exception:
-        return (0,0,0,"na")
+        return (0, 0, 0, "na")
+
 
 @st.cache_data(ttl=600, show_spinner=False)
 def build_rankings_cached(sig, base_raw, ev_view):
@@ -220,6 +237,7 @@ def build_rankings_cached(sig, base_raw, ev_view):
     except Exception:
         pass
     return None
+
 
 @st.cache_data(ttl=600, show_spinner=False)
 def build_advancement_cached(sig, base_raw, teams_master, ev_view, country, season):
@@ -231,6 +249,8 @@ def build_advancement_cached(sig, base_raw, teams_master, ev_view, country, seas
     except Exception:
         pass
     return None
+
+
 from datetime import datetime
 
 # ===== Snapshot cache of computed tables (per season,country) =====
@@ -241,26 +261,29 @@ import time as _time
 _SNAP_DIR = _Pth("./.ftc_cache/snapshots")
 _SNAP_DIR.mkdir(parents=True, exist_ok=True)
 
-def _snapshot_path(kind:str, season:int, country:str) -> _Pth:
+
+def _snapshot_path(kind: str, season: int, country: str) -> _Pth:
     safe_country = (country or "NA").replace(" ", "_")
     return _SNAP_DIR / f"{kind}_season{season}_{safe_country}.parquet"
 
-def _load_snapshot(kind:str, season:int, country:str, max_age_sec:int=12*3600):
+
+def _load_snapshot(kind: str, season: int, country: str, max_age_sec: int = 12 * 3600):
     p = _snapshot_path(kind, season, country)
     if p.exists():
         try:
-            if ( _time.time() - p.stat().st_mtime ) <= max_age_sec:
+            if (_time.time() - p.stat().st_mtime) <= max_age_sec:
                 return _pd.read_parquet(p)
         except Exception:
             csvp = p.with_suffix(".csv")
-            if csvp.exists() and ( _time.time() - csvp.stat().st_mtime ) <= max_age_sec:
+            if csvp.exists() and (_time.time() - csvp.stat().st_mtime) <= max_age_sec:
                 try:
                     return _pd.read_csv(csvp)
                 except Exception:
                     pass
     return None
 
-def _save_snapshot(kind:str, season:int, country:str, df):
+
+def _save_snapshot(kind: str, season: int, country: str, df):
     if df is None:
         return
     p = _snapshot_path(kind, season, country)
@@ -268,8 +291,10 @@ def _save_snapshot(kind:str, season:int, country:str, df):
         df.to_parquet(p, index=False)
     except Exception:
         df.to_csv(p.with_suffix(".csv"), index=False, encoding="utf-8-sig")
-USA_MAX_WORKERS=3
-USA_CHUNK_SIZE=25
+
+
+USA_MAX_WORKERS = 3
+USA_CHUNK_SIZE = 25
 
 import time, requests
 
@@ -290,18 +315,21 @@ def _http_get(url, headers=None, params=None, timeout=20.0, retries=2):
         time.sleep(min(1.5 * (attempt + 1), 5))
     raise last_exc if last_exc else RuntimeError("HTTP GET failed")
 
+
 from pathlib import Path
 
+
 # === AdvPoints: reuse the app's existing FTC API session & wrappers ===
-def adv_api_events(season:int) -> pd.DataFrame:
+def adv_api_events(season: int) -> pd.DataFrame:
     try:
         return events_list(int(season))
     except Exception:
         return pd.DataFrame()
 
-def adv_api_rankings(season:int, code:str) -> pd.DataFrame:
+
+def adv_api_rankings(season: int, code: str) -> pd.DataFrame:
     ok, s, js, url = api_rankings(int(season), str(code))
-    rows=[]
+    rows = []
     items = (js.get("rankings") or js.get("Rankings") or []) if ok and isinstance(js, dict) else []
     for r in items:
         try:
@@ -317,32 +345,36 @@ def adv_api_rankings(season:int, code:str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-
-
-def adv_api_alliances(season:int, code:str):
+def adv_api_alliances(season: int, code: str):
     """
     Return a list like: [{"number": 1, "teams": [1234, 5678, 9012]}, ].
     Primary source: /v2.0/{season}/alliances/{eventCode} (field 'alliances').
     Fallback:       /v2.0/{season}/alliances/{eventCode}/selection (field 'selections')
     """
+
     def to_int(x):
-        try: return int(x)
-        except: return None
+        try:
+            return int(x)
+        except:
+            return None
 
     def unique(seq):
-        seen=set(); out=[]
+        seen = set();
+        out = []
         for v in seq:
             if v not in seen:
-                seen.add(v); out.append(v)
+                seen.add(v);
+                out.append(v)
         return out
 
     # ---- primary: /alliances/{eventCode}
     ok, s, js, url = get_json_safe(f"/v2.0/{int(season)}/alliances/{code}")
     items = []
     if ok and isinstance(js, dict):
-        for k in ["alliances","Alliances","items","data","results"]:
+        for k in ["alliances", "Alliances", "items", "data", "results"]:
             if isinstance(js.get(k), list):
-                items = js[k]; break
+                items = js[k];
+                break
 
     def team_ids_from(obj):
         ids = []
@@ -356,7 +388,7 @@ def adv_api_alliances(season:int, code:str):
             [obj.get("firstPick")], [obj.get("secondPick")], [obj.get("thirdPick")],
             [obj.get("pick1")], [obj.get("pick2")], [obj.get("pick3")]
         ]
-        for r in ["round","round1","round2","round3"]:
+        for r in ["round", "round1", "round2", "round3"]:
             if r in obj: buckets.append(obj.get(r))
 
         def extract(e):
@@ -368,28 +400,30 @@ def adv_api_alliances(season:int, code:str):
                 v = to_int(tn)
                 if v is not None: ids.append(v)
                 # nested
-                for key in ["team","member","picked","selection"]:
+                for key in ["team", "member", "picked", "selection"]:
                     if key in e: extract(e.get(key))
             else:
                 v = to_int(e)
                 if v is not None: ids.append(v)
+
         for b in buckets: extract(b)
         return unique(ids)
 
     out = []
     for idx, a in enumerate(items if isinstance(items, list) else [], start=1):
-        num = to_int( (a or {}).get("number") or (a or {}).get("allianceNumber") or idx )
+        num = to_int((a or {}).get("number") or (a or {}).get("allianceNumber") or idx)
         teams = team_ids_from(a)
         out.append({"number": num if num is not None else idx, "teams": teams})
 
     # ---- fallback: /alliances/{eventCode}/selection
-    if not out or all(len(x.get("teams") or [])==0 for x in out):
+    if not out or all(len(x.get("teams") or []) == 0 for x in out):
         ok2, s2, js2, url2 = get_json_safe(f"/v2.0/{int(season)}/alliances/{code}/selection")
         selections = []
         if ok2 and isinstance(js2, dict):
-            for k in ["selections","Selections","items","data","results"]:
+            for k in ["selections", "Selections", "items", "data", "results"]:
                 if isinstance(js2.get(k), list):
-                    selections = js2[k]; break
+                    selections = js2[k];
+                    break
         # reconstruct per alliance
         agg = {}
         for sel in selections if isinstance(selections, list) else []:
@@ -420,10 +454,7 @@ def adv_api_alliances(season:int, code:str):
     return out
 
 
-
-
-
-def adv_api_awards(season:int, code:str):
+def adv_api_awards(season: int, code: str):
     ok, s, js, url = get_json_safe(f"/v2.0/{int(season)}/awards/{code}")
     items = []
     if ok and isinstance(js, dict):
@@ -456,7 +487,6 @@ def adv_api_awards(season:int, code:str):
     return norm
 
 
-
 # =======================
 # Advancement Points (FTC 2025-2026) helpers
 # =======================
@@ -464,19 +494,25 @@ ADV_PLAYOFF_POINTS = {"winner": 40, "finalist": 20, "3rd": 10, "4th": 5}
 ADV_INSPIRE_POINTS = {1: 60, 2: 30, 3: 15}
 ADV_OTHER_AWARDS_POINTS = {"1st": 12, "2nd": 6, "3rd": 3}
 
+
 def adv_qual_points(rank, field_size):
     try:
-        r = int(rank); n = max(2, int(field_size))
+        r = int(rank);
+        n = max(2, int(field_size))
         if n <= 1: return 16
-        val = 16 - (r-1) * (14/(n-1))
+        val = 16 - (r - 1) * (14 / (n - 1))
         return max(2, min(16, int(round(val))))
     except Exception:
         return 0
 
+
 def adv_alliance_points(alliance_no):
     if alliance_no is None or alliance_no == "": return 0
-    try: return max(0, 21 - int(alliance_no))
-    except Exception: return 0
+    try:
+        return max(0, 21 - int(alliance_no))
+    except Exception:
+        return 0
+
 
 def adv_playoff_points(finish):
     if not finish: return 0
@@ -486,6 +522,7 @@ def adv_playoff_points(finish):
     if "3rd" in key or "third" in key: return ADV_PLAYOFF_POINTS["3rd"]
     if "4th" in key or "fourth" in key: return ADV_PLAYOFF_POINTS["4th"]
     return 0
+
 
 def adv_awards_points(awards):
     import pandas as pd
@@ -508,15 +545,19 @@ def adv_awards_points(awards):
             if "3rd" in low or "third" in low: total += ADV_OTHER_AWARDS_POINTS["3rd"]; continue
     return total
 
+
 # =======================
 # FTC-Events API helpers
 # =======================
 import os, requests
 from typing import Dict, Any, Optional
+
 FTC_API_BASE = "https://ftc-api.firstinspires.org"
 
+
 def _ftc_get_auth():
-    u = None; t = None
+    u = None;
+    t = None
     try:
         u = st.secrets.get("ftc_username", None)
         t = st.secrets.get("ftc_token", None)
@@ -538,8 +579,9 @@ def _ftc_get_auth():
         t = t or ui.get("token")
     return (u, t)
 
+
 @st.cache_data(show_spinner=False, ttl=180)
-def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
+def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     u, tok = _ftc_get_auth()
     headers = {"Accept": "application/json"}
     if "{season}" in path:
@@ -557,6 +599,7 @@ def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]]=None) -> Di
     except Exception:
         return {}
 
+
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_rankings_df(season: int, event_code: str):
     data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
@@ -573,6 +616,7 @@ def ftc_rankings_df(season: int, event_code: str):
     import pandas as pd
     return pd.DataFrame(rows)
 
+
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_alliances(season: int, event_code: str):
     data = ftc_get(season, f"/v2.0/{season}/alliances/{event_code}")
@@ -586,22 +630,29 @@ def ftc_alliances(season: int, event_code: str):
             if cap:
                 tn = cap.get("teamNumber") or cap.get("team") or cap.get("teamId")
                 if tn:
-                    try: teams.append(int(tn))
-                    except: pass
+                    try:
+                        teams.append(int(tn))
+                    except:
+                        pass
             picks = a.get("round") or a.get("picks") or a.get("teams") or []
+
             def _extract(t):
                 if isinstance(t, dict):
                     return t.get("teamNumber") or t.get("team") or t.get("teamId")
                 return t
+
             for t in picks:
                 tn = _extract(t)
                 if tn:
-                    try: teams.append(int(tn))
-                    except: pass
+                    try:
+                        teams.append(int(tn))
+                    except:
+                        pass
             out.append({"number": int(num), "teams": teams})
     except Exception:
         pass
     return out
+
 
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_awards(season: int, event_code: str):
@@ -612,32 +663,43 @@ def ftc_awards(season: int, event_code: str):
         name = str(aw.get("name") or aw.get("award") or "").strip()
         rank = aw.get("rank") or aw.get("place") or aw.get("position")
         team = aw.get("teamNumber") or aw.get("team") or aw.get("teamId")
-        try: team = int(team)
-        except: team = None
-        try: rank = int(rank)
-        except: rank = None
+        try:
+            team = int(team)
+        except:
+            team = None
+        try:
+            rank = int(rank)
+        except:
+            rank = None
         norm.append({"name": name, "rank": rank, "team": team})
     return norm
 
+
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_playoff_matches(season: int, event_code: str):
-    data = ftc_get(season, f"/v2.0/{season}/matches/{event_code}", params={"tournamentLevel":"Playoff", "start":0, "end":999})
+    data = ftc_get(season, f"/v2.0/{season}/matches/{event_code}",
+                   params={"tournamentLevel": "Playoff", "start": 0, "end": 999})
     matches = data.get("Matches") or data.get("matches") or data.get("items") or []
     out = []
     for m in matches:
         wa = m.get("winner") or m.get("matchWinner") or m.get("winningAlliance") or ""
         red = m.get("red") or {}
         blue = m.get("blue") or {}
+
         def collect(side):
             teams = side.get("teams") or side.get("participant") or side.get("alliances") or []
             arr = []
             for t in teams:
                 tn = t.get("teamNumber") if isinstance(t, dict) else t
-                try: arr.append(int(tn))
-                except: pass
+                try:
+                    arr.append(int(tn))
+                except:
+                    pass
             return arr
+
         out.append({"winner": str(wa).lower(), "red": collect(red), "blue": collect(blue)})
     return out
+
 
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_events(season: int):
@@ -650,12 +712,16 @@ def ftc_events(season: int):
         name = e.get("name") or e.get("eventName") or ""
         cc = e.get("country") or e.get("countryCode") or e.get("country_code") or ""
         cn = e.get("countryName") or e.get("country_name") or ""
-        out.append({"code": str(code or "").strip(), "name": str(name or "").strip(), "country_code": str(cc or "").upper(), "country_name": str(cn or "")})
+        out.append(
+            {"code": str(code or "").strip(), "name": str(name or "").strip(), "country_code": str(cc or "").upper(),
+             "country_name": str(cn or "")})
     return out
+
 
 def _has_auth():
     u, t = _ftc_get_auth()
     return bool(u and t)
+
 
 # =======================
 # Compute Advancement
@@ -664,16 +730,16 @@ def build_advancement_template(ev_view, teams_master, country, season):
     import pandas as pd
     teams_il = teams_master[teams_master["country"].apply(lambda c: _country_matches(c, country))].sort_values("team")
     teams_il = dedupe_teams_master(teams_il, ev_view)
-    evs = ev_view[ev_view["season"]==season][["ev","ev_family","ev_name"]].drop_duplicates() if "season" in ev_view.columns else ev_view[[c for c in ["ev","ev_family","ev_name"] if c in ev_view.columns]].drop_duplicates()
+    evs = ev_view[ev_view["season"] == season][
+        ["ev", "ev_family", "ev_name"]].drop_duplicates() if "season" in ev_view.columns else ev_view[
+        [c for c in ["ev", "ev_family", "ev_name"] if c in ev_view.columns]].drop_duplicates()
     rows = []
     for _, t in teams_il.iterrows():
         for _, e in evs.iterrows():
-            rows.append({"team": int(t["team"]), "team_name": t.get("team_name",""),
-                         "event": e.get("ev_name") or e.get("ev",""), "family": e.get("ev_family",""),
+            rows.append({"team": int(t["team"]), "team_name": t.get("team_name", ""),
+                         "event": e.get("ev_name") or e.get("ev", ""), "family": e.get("ev_family", ""),
                          "qual_rank": "", "field_size": "", "alliance_no": "", "playoff_finish": "", "awards": ""})
     return pd.DataFrame(rows)
-
-
 
 
 def compute_advancement_table(ev_view, base, teams_master, country, season, adv_csv_df):
@@ -696,11 +762,12 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
         fams_base = []
 
     # map families -> codes & nice name (left-join to events_list)
-    fam_to_codes = {}; fam_to_name = {}
+    fam_to_codes = {};
+    fam_to_name = {}
     if fams_base:
-        fam_df = pd.DataFrame({"ev_family":[str(f) for f in fams_base]})
+        fam_df = pd.DataFrame({"ev_family": [str(f) for f in fams_base]})
         if not evs_df.empty:
-            tmp = fam_df.merge(evs_df.rename(columns={"family":"ev_family"}), how="left", on="ev_family")
+            tmp = fam_df.merge(evs_df.rename(columns={"family": "ev_family"}), how="left", on="ev_family")
             if tmp["event_code"].isna().all():  # case-insensitive retry
                 evs_df["_fam_l"] = evs_df["family"].astype(str).str.lower()
                 fam_df["_fam_l"] = fam_df["ev_family"].astype(str).str.lower()
@@ -710,30 +777,33 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
         for fam, g in tmp.groupby("ev_family"):
             fam = str(fam)
             codes = g["event_code"].dropna().astype(str).unique().tolist()
-            name  = g["name"].dropna().astype(str).iloc[0] if "name" in g and not g["name"].dropna().empty else fam
+            name = g["name"].dropna().astype(str).iloc[0] if "name" in g and not g["name"].dropna().empty else fam
             fam_to_codes[fam] = codes
-            fam_to_name[fam]  = name
+            fam_to_name[fam] = name
 
     # helper functions
     def adv_qual_points(rank, field_size):
         try:
-            r = int(rank); n = max(2, int(field_size))
+            r = int(rank);
+            n = max(2, int(field_size))
             if n <= 1: return 16
-            val = 16 - (r-1) * (14/(n-1))
+            val = 16 - (r - 1) * (14 / (n - 1))
             return max(2, min(16, int(round(val))))
         except Exception:
             return 0
 
     def compute_points_for_code(tid: int, code: str):
         rk_df = adv_api_rankings(int(season), code)
-        qrank = None; field = None
+        qrank = None;
+        field = None
         if isinstance(rk_df, pd.DataFrame) and not rk_df.empty:
             field = int(len(rk_df))
             if tid in rk_df["team"].values:
-                qrank = int(rk_df.loc[rk_df["team"]==tid, "rank"].iloc[0])
+                qrank = int(rk_df.loc[rk_df["team"] == tid, "rank"].iloc[0])
         qual_pts = adv_qual_points(qrank, field) if (qrank and field) else 0
 
-        alliance_pts = 0; alliance_no = None
+        alliance_pts = 0;
+        alliance_no = None
         allis = adv_api_alliances(int(season), code) or []
         for a in allis:
             if tid in (a.get("teams") or []):
@@ -745,39 +815,49 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
                 break
 
         # awards
-        awards_best = 0; awards_comp = []
+        awards_best = 0;
+        awards_comp = []
         aws = adv_api_awards(int(season), code) or []
         for it in aws:
             if it.get("team") != tid:
                 continue
             nm = (it.get("name") or "").lower()
             rk = it.get("rank")
-            pts = ({1:60,2:30,3:15}.get(rk, 60) if "inspire" in nm else {1:12,2:6,3:3}.get(rk, 12))
+            pts = ({1: 60, 2: 30, 3: 15}.get(rk, 60) if "inspire" in nm else {1: 12, 2: 6, 3: 3}.get(rk, 12))
             if pts > awards_best:
                 awards_best = pts
             awards_comp.append({"name": it.get("name"), "rank": rk, "points": pts, "code": code})
 
         # playoff via awards text
-        playoff_pts = 0; playoff_finish = ""
-        text = " ".join([str(x.get("name") or "").lower() for x in aws if x.get("team")==tid])
+        playoff_pts = 0;
+        playoff_finish = ""
+        text = " ".join([str(x.get("name") or "").lower() for x in aws if x.get("team") == tid])
         if "winning alliance" in text or "winner alliance" in text:
-            playoff_pts = 40; playoff_finish = "winner"
+            playoff_pts = 40;
+            playoff_finish = "winner"
         elif "finalist alliance" in text or "finalist" in text:
-            playoff_pts = 20; playoff_finish = "finalist"
+            playoff_pts = 20;
+            playoff_finish = "finalist"
         elif "semifinalist" in text or "semi-finalist" in text:
-            playoff_pts = 10; playoff_finish = "semifinalist"
+            playoff_pts = 10;
+            playoff_finish = "semifinalist"
         elif "quarterfinalist" in text or "quarter-finalist" in text:
-            playoff_pts = 5; playoff_finish = "quarterfinalist"
+            playoff_pts = 5;
+            playoff_finish = "quarterfinalist"
 
-        comp = {"qual_rank": qrank, "field_size": field, "alliance_no": alliance_no, "playoff_finish": playoff_finish, "awards": awards_comp, "code": code}
-        return qual_pts, alliance_pts, playoff_pts, awards_best, (qual_pts+alliance_pts+playoff_pts+awards_best), comp
+        comp = {"qual_rank": qrank, "field_size": field, "alliance_no": alliance_no, "playoff_finish": playoff_finish,
+                "awards": awards_comp, "code": code}
+        return qual_pts, alliance_pts, playoff_pts, awards_best, (
+                    qual_pts + alliance_pts + playoff_pts + awards_best), comp
 
     rows_summary = []
     for tid in teams_il["team"].astype(int).tolist():
         # families this team actually played in (from base)
         fams = []
         try:
-            fams = base.loc[(base.get("t1", pd.Series(dtype=int))==tid) | (base.get("t2", pd.Series(dtype=int))==tid), "ev_family"].dropna().astype(str).unique().tolist()
+            fams = base.loc[(base.get("t1", pd.Series(dtype=int)) == tid) | (
+                        base.get("t2", pd.Series(dtype=int)) == tid), "ev_family"].dropna().astype(
+                str).unique().tolist()
         except Exception:
             fams = []
 
@@ -786,10 +866,15 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
             codes = fam_to_codes.get(str(fam), [])
             label = fam_to_name.get(str(fam), str(fam))
 
-            best_qual = 0; best_qual_comp = {}
-            best_alli = 0; best_alli_comp = {}
-            best_play = 0; best_play_comp = {}
-            awards_best = 0; awards_best_comp = {}; awards_list = []
+            best_qual = 0;
+            best_qual_comp = {}
+            best_alli = 0;
+            best_alli_comp = {}
+            best_play = 0;
+            best_play_comp = {}
+            awards_best = 0;
+            awards_best_comp = {};
+            awards_list = []
 
             for code in codes:
                 qp, ap, pp, awp, tot, comp = compute_points_for_code(tid, code)
@@ -846,12 +931,10 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
                 "Awards": int(df_ev["awards_pts"].sum()),
             })
 
-    summary = pd.DataFrame(rows_summary).merge(teams_il[["team","team_name"]], on="team", how="left").sort_values(
-        ["AdvPts","Qual","Awards","Alliance","Playoff","team"], ascending=[False,False,False,False,False,True]).reset_index(drop=True)
+    summary = pd.DataFrame(rows_summary).merge(teams_il[["team", "team_name"]], on="team", how="left").sort_values(
+        ["AdvPts", "Qual", "Awards", "Alliance", "Playoff", "team"],
+        ascending=[False, False, False, False, False, True]).reset_index(drop=True)
     return summary, per_team_detail
-
-
-
 
 
 APP_TITLE = "MISHMASH Scouting platform - Version 13n19D (updated: 07.09.2025)"
@@ -868,6 +951,7 @@ EVENT_FAMILY_MAP = {
     "ILCMPHDRO": "ILCMP",
 }
 
+
 def family_of(code: str) -> str:
     if not isinstance(code, str):
         return code
@@ -878,6 +962,7 @@ def family_of(code: str) -> str:
     # fallback exact aliasing
     return EVENT_FAMILY_MAP.get(c, c)
 
+
 # ---------- Credentials & HTTP ----------
 def _cred_paths() -> list[str]:
     here = pathlib.Path(__file__).resolve().parent
@@ -886,22 +971,24 @@ def _cred_paths() -> list[str]:
     p2 = str(pathlib.Path(appdata) / "mae_scout" / "ftc_api_credentials.json") if appdata else ""
     return [p for p in [p1, p2] if p]
 
+
 def _load_json_credentials(path: str) -> t.Tuple[t.Optional[str], t.Optional[str]]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             obj = json.load(f)
         user = obj.get("username") or obj.get("user") or obj.get("FTC_API_USER")
-        key  = obj.get("api_key")  or obj.get("key")  or obj.get("FTC_API_KEY")
+        key = obj.get("api_key") or obj.get("key") or obj.get("FTC_API_KEY")
         if user and key:
             return str(user), str(key)
     except Exception:
         pass
     return None, None
 
+
 def get_credentials() -> t.Tuple[t.Optional[str], t.Optional[str], list[str]]:
     tried = []
     user = os.getenv("FTC_API_USER")
-    key  = os.getenv("FTC_API_KEY")
+    key = os.getenv("FTC_API_KEY")
     if user and key:
         return user, key, tried
     for p in _cred_paths():
@@ -911,8 +998,10 @@ def get_credentials() -> t.Tuple[t.Optional[str], t.Optional[str], list[str]]:
             return u, k, tried
     return None, None, tried
 
+
 def clean(s):
-    return (s or "").replace("\\u200f","").replace("\\u200e","").replace("\\xa0"," ").strip()
+    return (s or "").replace("\\u200f", "").replace("\\u200e", "").replace("\\xa0", " ").strip()
+
 
 def auth_session():
     u, k, _ = get_credentials()
@@ -920,13 +1009,16 @@ def auth_session():
         raise RuntimeError("FTC_API_USER / FTC_API_KEY missing (env vars or ftc_api_credentials.json)")
     s = requests.Session()
     s.auth = (u, k)
-    s.headers.update({"Accept":"application/json"})
+    s.headers.update({"Accept": "application/json"})
     return s
+
 
 def get_json(path: str):
     url = f"{BASE_URL}{path}"
-    r = auth_session().get(url, timeout=TIMEOUT); r.raise_for_status()
+    r = auth_session().get(url, timeout=TIMEOUT);
+    r.raise_for_status()
     return r.status_code, r.json(), url
+
 
 def get_json_safe(path: str):
     try:
@@ -934,6 +1026,7 @@ def get_json_safe(path: str):
     except Exception as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
         return False, status or -1, str(e), f"{BASE_URL}{path}"
+
 
 # ---------- API wrappers ----------
 def events_list(season: int) -> pd.DataFrame:
@@ -945,15 +1038,22 @@ def events_list(season: int) -> pd.DataFrame:
         name = clean(str(ev.get("name") or ev.get("eventName") or ""))
         country = clean(str(ev.get("countryCode") or ev.get("country") or ""))
         start = ev.get("dateStart") or ev.get("startDate") or ev.get("start")
-        rows.append({"event_code": code.upper(), "name": name, "country": country.upper(), "start": start, "family": family_of(code)})
+        rows.append({"event_code": code.upper(), "name": name, "country": country.upper(), "start": start,
+                     "family": family_of(code)})
     df = pd.DataFrame(rows)
     if not df.empty:
         df["start_dt"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
     return df
 
-def api_teams(season:int, code:str):    return get_json_safe(f"/v2.0/{season}/teams?eventCode={code}")
-def api_matches(season:int, code:str):  return get_json_safe(f"/v2.0/{season}/matches/{code}")
-def api_rankings(season:int, code:str): return get_json_safe(f"/v2.0/{season}/rankings/{code}")
+
+def api_teams(season: int, code: str):    return get_json_safe(f"/v2.0/{season}/teams?eventCode={code}")
+
+
+def api_matches(season: int, code: str):  return get_json_safe(f"/v2.0/{season}/matches/{code}")
+
+
+def api_rankings(season: int, code: str): return get_json_safe(f"/v2.0/{season}/rankings/{code}")
+
 
 # ---------- JSON helpers ----------
 def extract_list(js, *keys):
@@ -964,59 +1064,69 @@ def extract_list(js, *keys):
                 return v
     return js if isinstance(js, list) else []
 
+
 def extract_teams(js):   return extract_list(js, "teams", "Teams")
+
+
 def extract_matches(js): return extract_list(js, "matches", "MatchScores", "Scores", "Matches")
+
 
 def _to_int(x):
     try:
         if isinstance(x, dict):
-            for k in ("teamNumber","number","team"):
+            for k in ("teamNumber", "number", "team"):
                 if k in x and x[k] is not None:
                     return int(x[k])
         return int(str(x))
     except Exception:
         return None
 
-def _collect_participants(m:dict):
-    red={}; blue={}
+
+def _collect_participants(m: dict):
+    red = {};
+    blue = {}
     parts = m.get("participants") or m.get("teams") or []
     for p in parts or []:
-        tn=_to_int(p.get("teamNumber") or p.get("team") or p.get("number"))
-        station=str(p.get("station") or p.get("allianceStation") or "").lower().replace(" ","")
-        alias={"red1":"red1","red2":"red2","r1":"red1","r2":"red2","blue1":"blue1","blue2":"blue2","b1":"blue1","b2":"blue2"}
-        station=alias.get(station,station)
-        if tn and station in ("red1","red2"): red[station]=tn
-        if tn and station in ("blue1","blue2"): blue[station]=tn
-    return red,blue
+        tn = _to_int(p.get("teamNumber") or p.get("team") or p.get("number"))
+        station = str(p.get("station") or p.get("allianceStation") or "").lower().replace(" ", "")
+        alias = {"red1": "red1", "red2": "red2", "r1": "red1", "r2": "red2", "blue1": "blue1", "blue2": "blue2",
+                 "b1": "blue1", "b2": "blue2"}
+        station = alias.get(station, station)
+        if tn and station in ("red1", "red2"): red[station] = tn
+        if tn and station in ("blue1", "blue2"): blue[station] = tn
+    return red, blue
 
-def _get_ci(d:dict,*names:str):
-    if not isinstance(d,dict): return None
-    keys={str(k).lower():k for k in d.keys()}
+
+def _get_ci(d: dict, *names: str):
+    if not isinstance(d, dict): return None
+    keys = {str(k).lower(): k for k in d.keys()}
     for nm in names:
-        k=keys.get(str(nm).lower())
+        k = keys.get(str(nm).lower())
         if k is not None: return d[k]
     for nm in names:
-        ln=str(nm).lower()
-        for lk,k in keys.items():
+        ln = str(nm).lower()
+        for lk, k in keys.items():
             if ln in lk: return d[k]
     return None
+
 
 def _num(v):
     try:
         if v is None: return None
-        if isinstance(v,(int,float)): return float(v)
+        if isinstance(v, (int, float)): return float(v)
         return float(str(v))
     except Exception:
         return None
 
-def _match_stage(m:dict)->str:
+
+def _match_stage(m: dict) -> str:
     lvl = _get_ci(m, "tournamentLevel", "matchLevel", "compLevel", "level", "phase", "description", "matchType")
     lvls = str(lvl or "").lower()
-    flags = {str(k).lower(): _get_ci(m,k) for k in ["isPlayoff","playoff","elim","isElim","isElimination"]}
-    if any(bool(v) for v in flags.values() if isinstance(v,bool)):
+    flags = {str(k).lower(): _get_ci(m, k) for k in ["isPlayoff", "playoff", "elim", "isElim", "isElimination"]}
+    if any(bool(v) for v in flags.values() if isinstance(v, bool)):
         if any(bool(v) for v in flags.values()): return "elim"
-    if any(x in lvls for x in ["playoff","elim","final","semi","quarter","qf","sf","f-"]): return "elim"
-    if any(x in lvls for x in ["qual","qualification","qualifier","league meet","meet"]): return "qual"
+    if any(x in lvls for x in ["playoff", "elim", "final", "semi", "quarter", "qf", "sf", "f-"]): return "elim"
+    if any(x in lvls for x in ["qual", "qualification", "qualifier", "league meet", "meet"]): return "qual"
     return "unknown"
 
 
@@ -1027,6 +1137,8 @@ _LEVEL_MAP = {
     "LEVEL 2": 15, "LEVEL2": 15, "L2": 15, 2: 15, "2": 15,
     "LEVEL 3": 30, "LEVEL3": 30, "L3": 30, 3: 30, "3": 30,
 }
+
+
 def _val_to_level_points(v):
     try:
         if isinstance(v, str):
@@ -1034,6 +1146,7 @@ def _val_to_level_points(v):
         return float(_LEVEL_MAP.get(v, 0))
     except Exception:
         return 0.0
+
 
 def _iter_kv(obj):
     if isinstance(obj, dict):
@@ -1046,6 +1159,7 @@ def _iter_kv(obj):
             for kk, vv in _iter_kv(it):
                 yield f"[{i}].{kk}", vv
 
+
 def _robot_loc_endgame_points(match_dict, side: str):
     """Reconstruct Endgame points from 'Robot 1/2 Location' fields when the API
     doesn't expose an explicit endgame score. Returns float or None."""
@@ -1054,13 +1168,15 @@ def _robot_loc_endgame_points(match_dict, side: str):
         vals = []
         for k, v in _iter_kv(match_dict):
             lk = str(k).lower()
-            if "location" in lk and "robot" in lk and (s in lk or any(tag in lk for tag in [f"{s}1", f"{s}2", "robot1", "robot2"])):
+            if "location" in lk and "robot" in lk and (
+                    s in lk or any(tag in lk for tag in [f"{s}1", f"{s}2", "robot1", "robot2"])):
                 if isinstance(v, (str, int, float)):
                     vals.append(v)
                 elif isinstance(v, dict):
                     for cand in ("level", "value", "name", "loc"):
                         if cand in v:
-                            vals.append(v[cand]); break
+                            vals.append(v[cand]);
+                            break
         if not vals:
             return None
         pts = 0.0
@@ -1073,32 +1189,46 @@ def _robot_loc_endgame_points(match_dict, side: str):
         return pts if pts > 0 else None
     except Exception:
         return None
-def alliances_rows_from_payload(payload)->pd.DataFrame:
-    items=extract_matches(payload); rows=[]; idx=0
+
+
+def alliances_rows_from_payload(payload) -> pd.DataFrame:
+    items = extract_matches(payload);
+    rows = [];
+    idx = 0
     for m in items:
-        if not isinstance(m,dict): continue
-        idx+=1
-        red,blue=_collect_participants(m)
-        def pair(d,prefix):
-            low={k.lower():v for k,v in d.items()}; a=low.get(f"{prefix}1"); b=low.get(f"{prefix}2")
-            return [a,b] if a and b else None
-        rpair=pair(red,"red"); bpair=pair(blue,"blue")
-        rtot=_num(_get_ci(m,"scoreRedFinal","finalScoreRed")); btot=_num(_get_ci(m,"scoreBlueFinal","finalScoreBlue"))
-        rauto=_num(_get_ci(m,"scoreRedAuto")); bauto=_num(_get_ci(m,"scoreBlueAuto"))
-        rtele=_num(_get_ci(m,"scoreRedTeleop","scoreRedTeleOp")); btele=_num(_get_ci(m,"scoreBlueTeleop","scoreBlueTeleOp"))
-        rfoul=_num(_get_ci(m,"scoreRedFoul")); bfoul=_num(_get_ci(m,"scoreBlueFoul"))
-        rend=_num(_get_ci(m,"scoreRedEndgame","scoreRedEnd")); bend=_num(_get_ci(m,"scoreBlueEndgame","scoreBlueEnd"))
+        if not isinstance(m, dict): continue
+        idx += 1
+        red, blue = _collect_participants(m)
+
+        def pair(d, prefix):
+            low = {k.lower(): v for k, v in d.items()};
+            a = low.get(f"{prefix}1");
+            b = low.get(f"{prefix}2")
+            return [a, b] if a and b else None
+
+        rpair = pair(red, "red");
+        bpair = pair(blue, "blue")
+        rtot = _num(_get_ci(m, "scoreRedFinal", "finalScoreRed"));
+        btot = _num(_get_ci(m, "scoreBlueFinal", "finalScoreBlue"))
+        rauto = _num(_get_ci(m, "scoreRedAuto"));
+        bauto = _num(_get_ci(m, "scoreBlueAuto"))
+        rtele = _num(_get_ci(m, "scoreRedTeleop", "scoreRedTeleOp"));
+        btele = _num(_get_ci(m, "scoreBlueTeleop", "scoreBlueTeleOp"))
+        rfoul = _num(_get_ci(m, "scoreRedFoul"));
+        bfoul = _num(_get_ci(m, "scoreBlueFoul"))
+        rend = _num(_get_ci(m, "scoreRedEndgame", "scoreRedEnd"));
+        bend = _num(_get_ci(m, "scoreBlueEndgame", "scoreBlueEnd"))
         # Try to reconstruct Endgame from Robot 1/2 Location if missing/zero
         try:
             cand_r = _robot_loc_endgame_points(m, 'red')
             cand_b = _robot_loc_endgame_points(m, 'blue')
-            if (rend is None or float(rend)==0.0) and (cand_r is not None):
+            if (rend is None or float(rend) == 0.0) and (cand_r is not None):
                 rend = float(cand_r)
-            if (bend is None or float(bend)==0.0) and (cand_b is not None):
+            if (bend is None or float(bend) == 0.0) and (cand_b is not None):
                 bend = float(cand_b)
         except Exception:
             pass
-        stage=_match_stage(m)
+        stage = _match_stage(m)
 
         def derive(total, auto, tele, foul, end, side):
             # rem = total - auto - foul (remainder allocated to Teleop+Endgame)
@@ -1135,53 +1265,85 @@ def alliances_rows_from_payload(payload)->pd.DataFrame:
                 tele = max(0.0, rem - end)
 
             return tele, end
+
         rtele, rend = derive(rtot, rauto, rtele, rfoul, rend, 'red')
         btele, bend = derive(btot, bauto, btele, bfoul, bend, 'blue')
 
-        def np_total(a,t,e):
-            aa=0.0 if a is None else float(a)
-            tt=0.0 if t is None else float(t)
-            ee=0.0 if e is None else float(e)
-            return aa+tt+ee
+        def np_total(a, t, e):
+            aa = 0.0 if a is None else float(a)
+            tt = 0.0 if t is None else float(t)
+            ee = 0.0 if e is None else float(e)
+            return aa + tt + ee
 
         if rpair and rtot is not None:
-            rows.append({"idx":idx,"side":"red","t1":rpair[0],"t2":rpair[1],
-                         "score":rtot,"np_score":np_total(rauto,rtele,rend),
-                         "auto":rauto,"teleop":rtele,"endgame":rend,"foul":rfoul,"stage":stage})
+            rows.append({"idx": idx, "side": "red", "t1": rpair[0], "t2": rpair[1],
+                         "score": rtot, "np_score": np_total(rauto, rtele, rend),
+                         "auto": rauto, "teleop": rtele, "endgame": rend, "foul": rfoul, "stage": stage})
         if bpair and btot is not None:
-            rows.append({"idx":idx,"side":"blue","t1":bpair[0],"t2":bpair[1],
-                         "score":btot,"np_score":np_total(bauto,btele,bend),
-                         "auto":bauto,"teleop":btele,"endgame":bend,"foul":bfoul,"stage":stage})
-    df=pd.DataFrame(rows)
-    for c in ["score","np_score","auto","teleop","endgame","foul"]:
+            rows.append({"idx": idx, "side": "blue", "t1": bpair[0], "t2": bpair[1],
+                         "score": btot, "np_score": np_total(bauto, btele, bend),
+                         "auto": bauto, "teleop": btele, "endgame": bend, "foul": bfoul, "stage": stage})
+    df = pd.DataFrame(rows)
+    for c in ["score", "np_score", "auto", "teleop", "endgame", "foul"]:
         if c in df:
-            df[c]=pd.to_numeric(df[c], errors="coerce")
+            df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
 
+
 # ---------- K/M schedules ----------
-def K_schedule(n_qual:int)->float:
+def K_schedule(n_qual: int) -> float:
     if n_qual <= 6: return 0.5
     if n_qual <= 12:
         frac = (n_qual - 6) / 6.0
         return 0.5 + (0.3 - 0.5) * frac
     return 0.3
 
-def M_schedule(n_qual:int)->float:
+
+def M_schedule(n_qual: int) -> float:
     if n_qual <= 12: return 0.0
     if n_qual <= 36: return (n_qual - 12) / 24.0
     return 1.0
 
+
+# ---------- FIX: Definition of _build_score_component_map ----------
+@st.cache_data(ttl=600, show_spinner=False)
+def _build_score_component_map(season: int, event_code: str) -> dict:
+    """
+    Fetches match data for an event and returns a map of (idx, side) -> (auto, teleop, endgame, score).
+    """
+    ok, _, payload, _ = api_matches(season, event_code)
+    if not ok:
+        return {}
+
+    match_df = alliances_rows_from_payload(payload)
+    if match_df.empty:
+        return {}
+
+    comp_map = {}
+    for _, row in match_df.iterrows():
+        key = (int(row["idx"]), str(row["side"]).lower())
+        # Ensure all components are float, default to 0.0 if missing
+        auto = float(row.get("auto", 0.0) or 0.0)
+        teleop = float(row.get("teleop", 0.0) or 0.0)
+        endgame = float(row.get("endgame", 0.0) or 0.0)
+        score = float(row.get("score", 0.0) or 0.0)
+        comp_map[key] = (auto, teleop, endgame, score)
+    return comp_map
+
+
+# ---------- END FIX ----------
+
+
 # ---------- Statbotics EPA with history (team-share fix) ----------
 def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFrame):
     if base is None or base.empty:
-        final_df = pd.DataFrame(columns=["team","EPA","EPA_Auto","EPA_Endgame","EPA_Teleop","N"])
-        hist_df  = pd.DataFrame(columns=["team","ev","ev_family","idx","start_dt","EPA","EPA_Auto","EPA_Endgame","EPA_Teleop"])
+        final_df = pd.DataFrame(columns=["team", "EPA", "EPA_Auto", "EPA_Endgame", "EPA_Teleop", "N"])
+        hist_df = pd.DataFrame(
+            columns=["team", "ev", "ev_family", "idx", "start_dt", "EPA", "EPA_Auto", "EPA_Endgame", "EPA_Teleop"])
         return final_df, hist_df
 
-    ev_dates = ev_view[["event_code","start_dt"]].rename(columns={"event_code":"ev"})
-    b = base.merge(ev_dates, on="ev", how="left").sort_values(by=["start_dt","ev","idx","side"], kind="mergesort")
-
-
+    ev_dates = ev_view[["event_code", "start_dt"]].rename(columns={"event_code": "ev"})
+    b = base.merge(ev_dates, on="ev", how="left").sort_values(by=["start_dt", "ev", "idx", "side"], kind="mergesort")
 
     # --- Fill component columns from FTC scores (override to ensure non-zero endgame) ---
     try:
@@ -1201,75 +1363,87 @@ def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFram
                 comp_cache[ev_code] = _build_score_component_map(_season, str(ev_code))
             except Exception:
                 comp_cache[ev_code] = {}
-        def _fill_from_map(row, which:int):
+
+        def _fill_from_map(row, which: int):
             mp = comp_cache.get(row["__ev__"], {})
             tup = mp.get((int(row["__idx__"]), row["__side__"]), None)
             return None if not tup else float(tup[which])
+
         # override when mapped present, keep original otherwise
-        b["auto"]    = b.apply(lambda r: (_fill_from_map(r,0) if _fill_from_map(r,0) is not None else r.get("auto")), axis=1)
-        b["endgame"] = b.apply(lambda r: (_fill_from_map(r,2) if _fill_from_map(r,2) is not None else r.get("endgame")), axis=1)
-        b["score"]   = b.apply(lambda r: (_fill_from_map(r,3) if _fill_from_map(r,3) is not None else r.get("score")), axis=1)
-        b.drop(columns=["__idx__","__side__","__ev__"], inplace=True, errors="ignore")
+        b["auto"] = b.apply(lambda r: (_fill_from_map(r, 0) if _fill_from_map(r, 0) is not None else r.get("auto")),
+                            axis=1)
+        b["endgame"] = b.apply(
+            lambda r: (_fill_from_map(r, 2) if _fill_from_map(r, 2) is not None else r.get("endgame")), axis=1)
+        b["score"] = b.apply(lambda r: (_fill_from_map(r, 3) if _fill_from_map(r, 3) is not None else r.get("score")),
+                             axis=1)
+        b.drop(columns=["__idx__", "__side__", "__ev__"], inplace=True, errors="ignore")
     # --- end component enrichment ---
     # --- numeric guards to avoid NaN leaking to EPA updates ---
-    for col in ["auto","endgame","score"]:
+    for col in ["auto", "endgame", "score"]:
         if col not in b.columns:
             b[col] = 0.0
-    b[["auto","endgame","score"]] = b[["auto","endgame","score"]].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    b[["auto", "endgame", "score"]] = b[["auto", "endgame", "score"]].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     # --- end numeric guards ---
 
     # --- numeric guards to avoid NaN leaking to EPA updates ---
-    for col in ["auto","endgame","score"]:
+    for col in ["auto", "endgame", "score"]:
         if col not in b.columns:
             b[col] = 0.0
-    b[["auto","endgame","score"]] = b[["auto","endgame","score"]].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    b[["auto", "endgame", "score"]] = b[["auto", "endgame", "score"]].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     # --- end numeric guards ---
 
-
     mean_total = b["score"].dropna().mean()
-    mean_auto  = b["auto"].dropna().mean()
-    mean_end   = b["endgame"].dropna().mean()
+    mean_auto = b["auto"].dropna().mean()
+    mean_end = b["endgame"].dropna().mean()
     init_total = (mean_total or 0.0) / TEAMS_PER_ALLIANCE
-    init_auto  = (mean_auto  or 0.0) / TEAMS_PER_ALLIANCE
-    init_end   = (mean_end   or 0.0) / TEAMS_PER_ALLIANCE
+    init_auto = (mean_auto or 0.0) / TEAMS_PER_ALLIANCE
+    init_end = (mean_end or 0.0) / TEAMS_PER_ALLIANCE
 
     teams = sorted(set(b["t1"]).union(set(b["t2"])))
     EPA = {int(t): float(init_total) for t in teams}
-    EPA_A = {int(t): float(init_auto)  for t in teams}
-    EPA_E = {int(t): float(init_end)   for t in teams}
+    EPA_A = {int(t): float(init_auto) for t in teams}
+    EPA_E = {int(t): float(init_end) for t in teams}
     N_qual = {int(t): 0 for t in teams}
 
     hist_rows = []
-    for (ev, idx), g in b.groupby(["ev","idx"], sort=False):
+    for (ev, idx), g in b.groupby(["ev", "idx"], sort=False):
         try:
-            r=g[g["side"]=="red"].iloc[0]; bl=g[g["side"]=="blue"].iloc[0]
+            r = g[g["side"] == "red"].iloc[0];
+            bl = g[g["side"] == "blue"].iloc[0]
         except Exception:
             continue
         red = [int(r["t1"]), int(r["t2"])]
-        blue= [int(bl["t1"]), int(bl["t2"])]
+        blue = [int(bl["t1"]), int(bl["t2"])]
         stage = (r.get("stage") or bl.get("stage") or "").lower()
 
-        red_score = float(r["score"] or 0.0); blue_score = float(bl["score"] or 0.0)
-        red_auto  = float(r.get("auto") or 0.0); blue_auto  = float(bl.get("auto") or 0.0)
-        red_end   = float(r.get("endgame") or 0.0); blue_end = float(bl.get("endgame") or 0.0)
+        red_score = float(r["score"] or 0.0);
+        blue_score = float(bl["score"] or 0.0)
+        red_auto = float(r.get("auto") or 0.0);
+        blue_auto = float(bl.get("auto") or 0.0)
+        red_end = float(r.get("endgame") or 0.0);
+        blue_end = float(bl.get("endgame") or 0.0)
 
         redEPA = sum(EPA.get(t, init_total) for t in red)
         blueEPA = sum(EPA.get(t, init_total) for t in blue)
 
         for t in red:
-            n = N_qual.get(t, 0); K = K_schedule(n); M = M_schedule(n)
+            n = N_qual.get(t, 0);
+            K = K_schedule(n);
+            M = M_schedule(n)
             delta = (K * ((red_score - redEPA) - M * (blue_score - blueEPA))) / TEAMS_PER_ALLIANCE
             EPA[t] = EPA.get(t, init_total) + float(delta)
             EPA_A[t] = EPA_A.get(t, init_auto) + (K * (red_auto - EPA_A.get(t, init_auto))) / TEAMS_PER_ALLIANCE
-            EPA_E[t] = EPA_E.get(t, init_end)  + (K * (red_end  - EPA_E.get(t, init_end)))  / TEAMS_PER_ALLIANCE
+            EPA_E[t] = EPA_E.get(t, init_end) + (K * (red_end - EPA_E.get(t, init_end))) / TEAMS_PER_ALLIANCE
             if stage == "qual": N_qual[t] = n + 1
 
         for t in blue:
-            n = N_qual.get(t, 0); K = K_schedule(n); M = M_schedule(n)
+            n = N_qual.get(t, 0);
+            K = K_schedule(n);
+            M = M_schedule(n)
             delta = (K * ((blue_score - blueEPA) - M * (red_score - redEPA))) / TEAMS_PER_ALLIANCE
             EPA[t] = EPA.get(t, init_total) + float(delta)
             EPA_A[t] = EPA_A.get(t, init_auto) + (K * (blue_auto - EPA_A.get(t, init_auto))) / TEAMS_PER_ALLIANCE
-            EPA_E[t] = EPA_E.get(t, init_end)  + (K * (blue_end  - EPA_E.get(t, init_end)))  / TEAMS_PER_ALLIANCE
+            EPA_E[t] = EPA_E.get(t, init_end) + (K * (blue_end - EPA_E.get(t, init_end))) / TEAMS_PER_ALLIANCE
             if stage == "qual": N_qual[t] = n + 1
 
         for t in red + blue:
@@ -1284,32 +1458,34 @@ def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFram
     final_df["EPA"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA_Auto"] = pd.to_numeric(final_df["team"].map(EPA_A), errors="coerce")
     final_df["EPA_Endgame"] = pd.to_numeric(final_df["team"].map(EPA_E), errors="coerce")
-    final_df[["EPA","EPA_Auto","EPA_Endgame"]] = final_df[["EPA","EPA_Auto","EPA_Endgame"]].fillna(0.0)
+    final_df[["EPA", "EPA_Auto", "EPA_Endgame"]] = final_df[["EPA", "EPA_Auto", "EPA_Endgame"]].fillna(0.0)
     final_df["EPA_Teleop"] = final_df["EPA"] - final_df["EPA_Auto"] - final_df["EPA_Endgame"]
-    final_df["N"] = final_df["team"].map(lambda t: int(N_qual.get(t,0)))
+    final_df["N"] = final_df["team"].map(lambda t: int(N_qual.get(t, 0)))
     hist_df = pd.DataFrame(hist_rows)
     return final_df, hist_df
+
 
 def compute_epa_statbotics(base: pd.DataFrame, ev_view: pd.DataFrame) -> pd.DataFrame:
     final_df, _ = compute_epa_statbotics_with_history(base, ev_view)
     return final_df
 
-def opr_two_team(df, ycol="np_score", lam:float=1e-6)->pd.DataFrame:
+
+def opr_two_team(df, ycol="np_score", lam: float = 1e-6) -> pd.DataFrame:
     if df.empty or ycol not in df.columns:
         return pd.DataFrame(columns=["team", ycol])
-    df2=df.copy()
-    df2[ycol]=pd.to_numeric(df2[ycol], errors="coerce")
-    df2=df2[np.isfinite(df2[ycol])]
+    df2 = df.copy()
+    df2[ycol] = pd.to_numeric(df2[ycol], errors="coerce")
+    df2 = df2[np.isfinite(df2[ycol])]
     if df2.empty:
         return pd.DataFrame(columns=["team", ycol])
-    teams=sorted(set(df2["t1"]).union(set(df2["t2"])))
-    idx={t:i for i,t in enumerate(teams)}
-    X=np.zeros((len(df2), len(teams)), dtype=float)
-    y=df2[ycol].to_numpy(dtype=float)
-    for i,row in df2.reset_index(drop=True).iterrows():
+    teams = sorted(set(df2["t1"]).union(set(df2["t2"])))
+    idx = {t: i for i, t in enumerate(teams)}
+    X = np.zeros((len(df2), len(teams)), dtype=float)
+    y = df2[ycol].to_numpy(dtype=float)
+    for i, row in df2.reset_index(drop=True).iterrows():
         X[i, idx[int(row["t1"])]] = 1.0
         X[i, idx[int(row["t2"])]] = 1.0
-    XtX = X.T @ X + float(lam)*np.eye(len(teams))
+    XtX = X.T @ X + float(lam) * np.eye(len(teams))
     Xty = X.T @ y
     try:
         w = np.linalg.solve(XtX, Xty)
@@ -1340,26 +1516,30 @@ def _country_matches(s: str, country: str) -> bool:
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def rankings_for_event(season:int, code:str)->pd.DataFrame:
-    ok,_,d,_ = api_rankings(season, code)
-    items=extract_list(d,"rankings","Rankings")
-    rows=[]
+def rankings_for_event(season: int, code: str) -> pd.DataFrame:
+    ok, _, d, _ = api_rankings(season, code)
+    items = extract_list(d, "rankings", "Rankings")
+    rows = []
     for r in items:
-        t=r.get("teamNumber") or r.get("team") or r.get("number")
+        t = r.get("teamNumber") or r.get("team") or r.get("number")
         if t is None: continue
+
         def _get_int(*names):
             for n in names:
-                v=r.get(n)
+                v = r.get(n)
                 if v is not None:
-                    try: return int(v)
-                    except: pass
+                    try:
+                        return int(v)
+                    except:
+                        pass
             return None
-        rows.append({"team": int(t), "rank": _get_int("rank","Rank"),
-                     "wins": _get_int("wins","W"), "losses": _get_int("losses","L"), "ties": _get_int("ties","T")})
+
+        rows.append({"team": int(t), "rank": _get_int("rank", "Rank"),
+                     "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T")})
     return pd.DataFrame(rows)
 
-@st.cache_data(ttl=1800, show_spinner=True)
 
+@st.cache_data(ttl=1800, show_spinner=True)
 def fetch_season_data(season: int, country: str, max_workers: int):
     """
     Root-cause fixed loader: returns (ev_view, base_raw, teams_master).
@@ -1387,20 +1567,24 @@ def fetch_season_data(season: int, country: str, max_workers: int):
     ev_f = ev_df[ev_df["country"].apply(lambda s: _country_matches(s, country))].copy()
     if ev_f.empty:
         ev_df["family"] = ev_df["event_code"].apply(family_of)
-        return ev_df[["event_code", "name", "country", "start_dt", "family"]], pd.DataFrame(columns=["idx","side","t1","t2","score","np_score","auto","teleop","endgame","foul","stage","ev","ev_family"]), pd.DataFrame(columns=["team","team_name","country","ev","ev_family"])
+        return ev_df[["event_code", "name", "country", "start_dt", "family"]], pd.DataFrame(
+            columns=["idx", "side", "t1", "t2", "score", "np_score", "auto", "teleop", "endgame", "foul", "stage", "ev",
+                     "ev_family"]), pd.DataFrame(columns=["team", "team_name", "country", "ev", "ev_family"])
     cand = ev_f["event_code"].dropna().astype(str).str.upper().unique().tolist()
 
     # --- Augment: include global/CMP events where selected-country teams participated ---
     home_cc = (country or "").strip().upper()
     all_events_df = events_list_cached(season)
+
     def _is_global_event(row):
-        n = str(row.get("name","")).upper()
-        c = str(row.get("event_code","")).upper()
+        n = str(row.get("name", "")).upper()
+        c = str(row.get("event_code", "")).upper()
         return ("WORLD" in n) or ("CHAMP" in n) or ("CMP" in c) or ("HOUSTON" in n)
+
     glob = all_events_df[all_events_df.apply(_is_global_event, axis=1)].copy()
     extra = []
     for _, er in glob.iterrows():
-        ec = str(er.get("event_code","")).upper()
+        ec = str(er.get("event_code", "")).upper()
         if ec in cand:
             continue
         try:
@@ -1410,7 +1594,8 @@ def fetch_season_data(season: int, country: str, max_workers: int):
                 tn = t.get("teamNumber") or t.get("team") or t.get("number")
                 cc = str(t.get("countryCode") or t.get("country") or "").strip().upper()
                 if tn is not None and (cc == home_cc):
-                    found = True; break
+                    found = True;
+                    break
             if found:
                 extra.append(ec)
                 ev_f = pd.concat([ev_f, er.to_frame().T], ignore_index=True)
@@ -1418,8 +1603,8 @@ def fetch_season_data(season: int, country: str, max_workers: int):
             continue
     if extra:
         cand = sorted(set(cand) | set(extra))
-    # --- end augment ---
 
+    # --- end augment ---
 
     # Builders for matches/teams
     def _matches(code):
@@ -1438,7 +1623,8 @@ def fetch_season_data(season: int, country: str, max_workers: int):
                 nm = t.get("nameShort") or t.get("name") or ""
                 cc = clean(str(t.get("countryCode") or t.get("country") or ""))
                 if tn:
-                    rows.append({"team": int(tn), "team_name": nm, "country": cc.upper(), "ev": code, "ev_family": family_of(code)})
+                    rows.append({"team": int(tn), "team_name": nm, "country": cc.upper(), "ev": code,
+                                 "ev_family": family_of(code)})
         return pd.DataFrame(rows)
 
     base_all, teams_all = [], []
@@ -1469,21 +1655,25 @@ def fetch_season_data(season: int, country: str, max_workers: int):
     if base_all:
         base = pd.concat(base_all, ignore_index=True)
     else:
-        base = pd.DataFrame(columns=["idx","side","t1","t2","score","np_score","auto","teleop","endgame","foul","stage","ev","ev_family"])
+        base = pd.DataFrame(
+            columns=["idx", "side", "t1", "t2", "score", "np_score", "auto", "teleop", "endgame", "foul", "stage", "ev",
+                     "ev_family"])
     if teams_all:
-        teams_master = pd.concat(teams_all, ignore_index=True).drop_duplicates(subset=["team","ev"], keep="last")
+        teams_master = pd.concat(teams_all, ignore_index=True).drop_duplicates(subset=["team", "ev"], keep="last")
     else:
-        teams_master = pd.DataFrame(columns=["team","team_name","country","ev","ev_family"])
+        teams_master = pd.DataFrame(columns=["team", "team_name", "country", "ev", "ev_family"])
 
     ev_f = ev_f.copy()
     ev_f["family"] = ev_f["event_code"].apply(family_of)
 
     try:
-        st.caption(f"📦 Loaded: matches_ok={diag_counts['matches_ok']}, teams_ok={diag_counts['teams_ok']} (errors: m={diag_counts['matches_err']}, t={diag_counts['teams_err']})")
+        st.caption(
+            f"📦 Loaded: matches_ok={diag_counts['matches_ok']}, teams_ok={diag_counts['teams_ok']} (errors: m={diag_counts['matches_err']}, t={diag_counts['teams_err']})")
     except Exception:
         pass
 
-    return ev_f[["event_code","name","country","start_dt","family"]], base, teams_master
+    return ev_f[["event_code", "name", "country", "start_dt", "family"]], base, teams_master
+
 
 def _int0(x):
     try:
@@ -1492,9 +1682,11 @@ def _int0(x):
     except Exception:
         return 0
 
+
 # ---------- Rankings (OPR = last family) ----------
-def build_ranking_table(ev_view:pd.DataFrame, base:pd.DataFrame, teams_master:pd.DataFrame, country:str)->pd.DataFrame:
-    teams_master_f=teams_master[teams_master["country"].apply(lambda c:_country_matches(c,country))].copy()
+def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master: pd.DataFrame,
+                        country: str) -> pd.DataFrame:
+    teams_master_f = teams_master[teams_master["country"].apply(lambda c: _country_matches(c, country))].copy()
     if teams_master_f.empty: return pd.DataFrame()
 
     epa_final, _ = compute_epa_statbotics_with_history(base, ev_view)
@@ -1502,70 +1694,80 @@ def build_ranking_table(ev_view:pd.DataFrame, base:pd.DataFrame, teams_master:pd
     if isinstance(epa_final, pd.DataFrame) and not epa_final.empty:
         epa_final = epa_final.sort_values('team').drop_duplicates(subset=['team'], keep='last')
     base_np = base.copy()
-    base_np["np_score"]=pd.to_numeric(base_np["np_score"], errors="coerce")
-    base_np=base_np[np.isfinite(base_np["np_score"])]
-    opr_fam_list=[]
+    base_np["np_score"] = pd.to_numeric(base_np["np_score"], errors="coerce")
+    base_np = base_np[np.isfinite(base_np["np_score"])]
+    opr_fam_list = []
     for fam, fam_df in base_np.groupby("ev_family"):
         if fam_df.empty:
             continue
-        fam_opr = opr_two_team(fam_df, "np_score", lam=1e-6).rename(columns={"np_score":"OPR"})
-        fam_opr["ev_family"]=fam
+        fam_opr = opr_two_team(fam_df, "np_score", lam=1e-6).rename(columns={"np_score": "OPR"})
+        fam_opr["ev_family"] = fam
         opr_fam_list.append(fam_opr)
-    opr_by_family = pd.concat(opr_fam_list, ignore_index=True) if opr_fam_list else pd.DataFrame(columns=["team","OPR","ev_family"])
-    opr_by_family["team"]=pd.to_numeric(opr_by_family["team"], errors="coerce").astype("Int64")
+    opr_by_family = pd.concat(opr_fam_list, ignore_index=True) if opr_fam_list else pd.DataFrame(
+        columns=["team", "OPR", "ev_family"])
+    opr_by_family["team"] = pd.to_numeric(opr_by_family["team"], errors="coerce").astype("Int64")
 
-    ev_dates = ev_view[["event_code","start_dt","family"]].rename(columns={"event_code":"ev"})
+    ev_dates = ev_view[["event_code", "start_dt", "family"]].rename(columns={"event_code": "ev"})
     bb = base.merge(ev_dates, on="ev", how="left")
-    long_rows=[]
-    for _,r in bb.iterrows():
-        for tcol in ("t1","t2"):
-            t=r.get(tcol)
+    long_rows = []
+    for _, r in bb.iterrows():
+        for tcol in ("t1", "t2"):
+            t = r.get(tcol)
             if pd.notna(t):
-                long_rows.append({"team":int(t), "ev_family": r.get("ev_family"), "start_dt": r.get("start_dt")})
+                long_rows.append({"team": int(t), "ev_family": r.get("ev_family"), "start_dt": r.get("start_dt")})
     long_df = pd.DataFrame(long_rows)
     if not long_df.empty:
         last_idx = long_df.sort_values("start_dt").groupby("team", as_index=False).tail(1).reset_index(drop=True)
-        last_fam_per_team = last_idx[["team","ev_family"]].rename(columns={"ev_family":"last_family"})
+        last_fam_per_team = last_idx[["team", "ev_family"]].rename(columns={"ev_family": "last_family"})
     else:
-        last_fam_per_team = pd.DataFrame(columns=["team","last_family"])
+        last_fam_per_team = pd.DataFrame(columns=["team", "last_family"])
 
-    last_opr = last_fam_per_team.merge(opr_by_family, left_on=["team","last_family"],
-                                       right_on=["team","ev_family"], how="left").drop(columns=["ev_family"])
-    last_opr = last_opr.rename(columns={"OPR":"OPR_last_family"})[["team","OPR_last_family"]]
+    last_opr = last_fam_per_team.merge(opr_by_family, left_on=["team", "last_family"],
+                                       right_on=["team", "ev_family"], how="left").drop(columns=["ev_family"])
+    last_opr = last_opr.rename(columns={"OPR": "OPR_last_family"})[["team", "OPR_last_family"]]
 
-    rec={}
-    for gid,rows in base.groupby(["ev","idx"]):
+    rec = {}
+    for gid, rows in base.groupby(["ev", "idx"]):
         try:
-            r=rows[rows["side"]=="red"].iloc[0]; b=rows[rows["side"]=="blue"].iloc[0]
-        except Exception: continue
-        rs=float(r["score"]); bs=float(b["score"])
-        red=[int(r["t1"]),int(r["t2"])]; blue=[int(b["t1"]),int(b["t2"])]
-        for t in red+blue: rec.setdefault(t,{"W":0,"L":0,"T":0})
-        if abs(rs-bs)<1e-9:
-            for t in red+blue: rec[t]["T"]+=1
-        elif rs>bs:
-            for t in red: rec[t]["W"]+=1
-            for t in blue: rec[t]["L"]+=1
+            r = rows[rows["side"] == "red"].iloc[0];
+            b = rows[rows["side"] == "blue"].iloc[0]
+        except Exception:
+            continue
+        rs = float(r["score"]);
+        bs = float(b["score"])
+        red = [int(r["t1"]), int(r["t2"])];
+        blue = [int(b["t1"]), int(b["t2"])]
+        for t in red + blue: rec.setdefault(t, {"W": 0, "L": 0, "T": 0})
+        if abs(rs - bs) < 1e-9:
+            for t in red + blue: rec[t]["T"] += 1
+        elif rs > bs:
+            for t in red: rec[t]["W"] += 1
+            for t in blue: rec[t]["L"] += 1
         else:
-            for t in blue: rec[t]["W"]+=1
-            for t in red:  rec[t]["L"]+=1
-    rec_df=pd.DataFrame([{"team":t,**v} for t,v in rec.items()])
+            for t in blue: rec[t]["W"] += 1
+            for t in red:  rec[t]["L"] += 1
+    rec_df = pd.DataFrame([{"team": t, **v} for t, v in rec.items()])
 
-    df=teams_master_f.merge(epa_final.rename(columns={"EPA":"EPA","EPA_Auto":"EPA_Auto","EPA_Teleop":"EPA_Teleop","EPA_Endgame":"EPA_Endgame"}),on="team",how="left") \
-                     .merge(last_opr,on="team",how="left").merge(rec_df,on="team",how="left")
-    for c in ["W","L","T"]:
-        if c not in df.columns: df[c]=0
-        df[c]=pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+    df = teams_master_f.merge(epa_final.rename(
+        columns={"EPA": "EPA", "EPA_Auto": "EPA_Auto", "EPA_Teleop": "EPA_Teleop", "EPA_Endgame": "EPA_Endgame"}),
+                              on="team", how="left") \
+        .merge(last_opr, on="team", how="left").merge(rec_df, on="team", how="left")
+    for c in ["W", "L", "T"]:
+        if c not in df.columns: df[c] = 0
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
 
-    df["RECORD"]=df.apply(lambda r: f"{_int0(r['W'])}-{_int0(r['L'])}" + (f"-{_int0(r.get('T',0))}" if _int0(r.get('T',0))>0 else ""), axis=1)
-    df=df.rename(columns={"OPR_last_family":"OPR"})
-    show=["team","team_name","country","EPA","EPA_Auto","EPA_Teleop","EPA_Endgame","OPR","RECORD"]
+    df["RECORD"] = df.apply(
+        lambda r: f"{_int0(r['W'])}-{_int0(r['L'])}" + (f"-{_int0(r.get('T', 0))}" if _int0(r.get('T', 0)) > 0 else ""),
+        axis=1)
+    df = df.rename(columns={"OPR_last_family": "OPR"})
+    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "RECORD"]
     df = df.drop_duplicates(subset=["team"], keep="first")
-    return df[show].sort_values(by=["EPA","OPR"], ascending=[False,False], na_position="last")
+    return df[show].sort_values(by=["EPA", "OPR"], ascending=[False, False], na_position="last")
+
 
 # ---------- Diagnostics ----------
-def build_diagnostics(ev_view:pd.DataFrame, base:pd.DataFrame, teams_master:pd.DataFrame, country:str):
-    teams_master_f=teams_master[teams_master["country"].apply(lambda c:_country_matches(c,country))].copy()
+def build_diagnostics(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master: pd.DataFrame, country: str):
+    teams_master_f = teams_master[teams_master["country"].apply(lambda c: _country_matches(c, country))].copy()
     if teams_master_f.empty: return pd.DataFrame()
 
     # dedupe to one row per team (latest event)
@@ -1576,116 +1778,137 @@ def build_diagnostics(ev_view:pd.DataFrame, base:pd.DataFrame, teams_master:pd.D
     # ensure single row per team
     if isinstance(epa_final, pd.DataFrame) and not epa_final.empty:
         epa_final = epa_final.sort_values('team').drop_duplicates(subset=['team'], keep='last')
-    base_np=base.copy()
-    base_np["np_score"]=pd.to_numeric(base_np["np_score"], errors="coerce")
-    base_np=base_np[np.isfinite(base_np["np_score"])]
-    opr_df=opr_two_team(base_np,"np_score",lam=1e-6).rename(columns={"np_score":"OPR"})
-    n_matches=len(base_np); n_teams=len(set(base_np["t1"]).union(set(base_np["t2"])))
+    base_np = base.copy()
+    base_np["np_score"] = pd.to_numeric(base_np["np_score"], errors="coerce")
+    base_np = base_np[np.isfinite(base_np["np_score"])]
+    opr_df = opr_two_team(base_np, "np_score", lam=1e-6).rename(columns={"np_score": "OPR"})
+    n_matches = len(base_np);
+    n_teams = len(set(base_np["t1"]).union(set(base_np["t2"])))
 
-    cnt={}
-    for _,r in base.iterrows():
-        for t in [r["t1"],r["t2"]]: cnt[t]=cnt.get(t,1)+1 if t in cnt else 1
-    cnt_df=pd.DataFrame([{"team":int(k),"matches":int(v)} for k,v in cnt.items()])
+    cnt = {}
+    for _, r in base.iterrows():
+        for t in [r["t1"], r["t2"]]: cnt[t] = cnt.get(t, 1) + 1 if t in cnt else 1
+    cnt_df = pd.DataFrame([{"team": int(k), "matches": int(v)} for k, v in cnt.items()])
 
-    epa_map=dict(zip(epa_final["team"], epa_final["EPA"]))
-    rows=[]
-    for gid,g in base.groupby(["ev","idx"]):
+    epa_map = dict(zip(epa_final["team"], epa_final["EPA"]))
+    rows = []
+    for gid, g in base.groupby(["ev", "idx"]):
         try:
-            r=g[g["side"]=="red"].iloc[0]; b=g[g["side"]=="blue"].iloc[0]
-        except Exception: continue
-        rs=[int(r["t1"]),int(r["t2"])]; bs=[int(b["t1"]),int(b["t2"])]
-        for i,t in enumerate(rs):
-            ally=rs[1-i]; opp=bs
-            rows.append({"team":t,"ally_epa":epa_map.get(ally,np.nan),
-                         "opp_epa":np.nanmean([epa_map.get(x,np.nan) for x in opp])})
-        for i,t in enumerate(bs):
-            ally=bs[1-i]; opp=rs
-            rows.append({"team":t,"ally_epa":epa_map.get(ally,np.nan),
-                         "opp_epa":np.nanmean([epa_map.get(x,np.nan) for x in opp])})
-    str_df=pd.DataFrame(rows).groupby("team").mean(numeric_only=True).reset_index(names="team")
+            r = g[g["side"] == "red"].iloc[0];
+            b = g[g["side"] == "blue"].iloc[0]
+        except Exception:
+            continue
+        rs = [int(r["t1"]), int(r["t2"])];
+        bs = [int(b["t1"]), int(b["t2"])]
+        for i, t in enumerate(rs):
+            ally = rs[1 - i];
+            opp = bs
+            rows.append({"team": t, "ally_epa": epa_map.get(ally, np.nan),
+                         "opp_epa": np.nanmean([epa_map.get(x, np.nan) for x in opp])})
+        for i, t in enumerate(bs):
+            ally = bs[1 - i];
+            opp = rs
+            rows.append({"team": t, "ally_epa": epa_map.get(ally, np.nan),
+                         "opp_epa": np.nanmean([epa_map.get(x, np.nan) for x in opp])})
+    str_df = pd.DataFrame(rows).groupby("team").mean(numeric_only=True).reset_index(names="team")
 
-    dtab=teams_master_f.merge(epa_final,on="team",how="left") \
-                       .merge(opr_df,on="team",how="left").merge(cnt_df,on="team",how="left").merge(str_df,on="team",how="left")
-    dtab["OPR"]=pd.to_numeric(dtab.get("OPR",np.nan), errors="coerce")
-    dtab["delta(OPR-EPA)"]=dtab["OPR"]-dtab["EPA"]
-    dtab["N_EPA_updates"]=dtab["N"].fillna(0).astype(int) if "N" in dtab.columns else 0
+    dtab = teams_master_f.merge(epa_final, on="team", how="left") \
+        .merge(opr_df, on="team", how="left").merge(cnt_df, on="team", how="left").merge(str_df, on="team", how="left")
+    dtab["OPR"] = pd.to_numeric(dtab.get("OPR", np.nan), errors="coerce")
+    dtab["delta(OPR-EPA)"] = dtab["OPR"] - dtab["EPA"]
+    dtab["N_EPA_updates"] = dtab["N"].fillna(0).astype(int) if "N" in dtab.columns else 0
     return dtab, n_matches, n_teams
 
+
 # ---------- Team drilldown ----------
-def team_event_breakdown(season:int, team:int, base:pd.DataFrame, ev_view:pd.DataFrame)->pd.DataFrame:
+def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd.DataFrame) -> pd.DataFrame:
     if base.empty:
-        return pd.DataFrame(columns=["event","date","rank","record","EPA","EPA Auto","EPA Teleop","EPA Endgame","OPR","matches"])
+        return pd.DataFrame(
+            columns=["event", "date", "rank", "record", "EPA", "EPA Auto", "EPA Teleop", "EPA Endgame", "OPR",
+                     "matches"])
 
     epa_final, hist_df = compute_epa_statbotics_with_history(base, ev_view)
 
-    fams = base[(base["t1"]==team)|(base["t2"]==team)]["ev_family"].dropna().unique().tolist()
-    rows=[]
+    fams = base[(base["t1"] == team) | (base["t2"] == team)]["ev_family"].dropna().unique().tolist()
+    rows = []
     for fam in fams:
-        fam_hist = hist_df[(hist_df["team"]==team) & (hist_df["ev_family"]==fam)].copy()
+        fam_hist = hist_df[(hist_df["team"] == team) & (hist_df["ev_family"] == fam)].copy()
         if fam_hist.empty:
             continue
-        last = fam_hist.sort_values(["start_dt","ev","idx"]).iloc[-1]
-        EPA   = float(last["EPA"]); EPA_A = float(last["EPA_Auto"]); EPA_E = float(last["EPA_Endgame"])
+        last = fam_hist.sort_values(["start_dt", "ev", "idx"]).iloc[-1]
+        EPA = float(last["EPA"]);
+        EPA_A = float(last["EPA_Auto"]);
+        EPA_E = float(last["EPA_Endgame"])
         EPA_T = float(last["EPA_Teleop"])
 
-        fam_base = base[base["ev_family"]==fam].copy()
-        fam_base["np_score"]=pd.to_numeric(fam_base["np_score"], errors="coerce")
-        fam_base=fam_base[np.isfinite(fam_base["np_score"])]
-        opr_ev = opr_two_team(fam_base, "np_score", lam=1e-6).rename(columns={"np_score":"OPR"})
-        opr_row=opr_ev[opr_ev["team"]==team]
-        opr=float(opr_row["OPR"].iloc[0]) if not opr_row.empty else np.nan
+        fam_base = base[base["ev_family"] == fam].copy()
+        fam_base["np_score"] = pd.to_numeric(fam_base["np_score"], errors="coerce")
+        fam_base = fam_base[np.isfinite(fam_base["np_score"])]
+        opr_ev = opr_two_team(fam_base, "np_score", lam=1e-6).rename(columns={"np_score": "OPR"})
+        opr_row = opr_ev[opr_ev["team"] == team]
+        opr = float(opr_row["OPR"].iloc[0]) if not opr_row.empty else np.nan
 
-        W=L=T=0; match_cnt=0
-        for gid, rows_g in fam_base.groupby(["ev","idx"]):
+        W = L = T = 0;
+        match_cnt = 0
+        for gid, rows_g in fam_base.groupby(["ev", "idx"]):
             try:
-                r = rows_g[rows_g["side"]=="red"].iloc[0]; b = rows_g[rows_g["side"]=="blue"].iloc[0]
+                r = rows_g[rows_g["side"] == "red"].iloc[0];
+                b = rows_g[rows_g["side"] == "blue"].iloc[0]
             except Exception:
                 continue
-            players=[int(r["t1"]),int(r["t2"]),int(b["t1"]),int(b["t2"])]
+            players = [int(r["t1"]), int(r["t2"]), int(b["t1"]), int(b["t2"])]
             if team not in players:
                 continue
             match_cnt += 1
-            rs=float(r["score"]); bs=float(b["score"])
-            if abs(rs-bs)<1e-9:
-                T+=1
+            rs = float(r["score"]);
+            bs = float(b["score"])
+            if abs(rs - bs) < 1e-9:
+                T += 1
             elif team in (int(r["t1"]), int(r["t2"])):
-                if rs>bs: W+=1
-                else: L+=1
+                if rs > bs:
+                    W += 1
+                else:
+                    L += 1
             else:
-                if bs>rs: W+=1
-                else: L+=1
+                if bs > rs:
+                    W += 1
+                else:
+                    L += 1
 
-        rk=None
-        codes_in_family=ev_view.loc[ev_view["family"]==fam,"event_code"].tolist()
+        rk = None
+        codes_in_family = ev_view.loc[ev_view["family"] == fam, "event_code"].tolist()
         for code in codes_in_family:
-            rk_df=rankings_for_event(season, code)
-            if not rk_df.empty and (rk_df["team"]==team).any():
-                rk=int(rk_df.loc[rk_df["team"]==team,"rank"].iloc[0]); break
+            rk_df = rankings_for_event(season, code)
+            if not rk_df.empty and (rk_df["team"] == team).any():
+                rk = int(rk_df.loc[rk_df["team"] == team, "rank"].iloc[0]);
+                break
 
-        evs_meta=ev_view[ev_view["family"]==fam].copy().sort_values("start_dt")
-        fam_name=fam; date_str=""
+        evs_meta = ev_view[ev_view["family"] == fam].copy().sort_values("start_dt")
+        fam_name = fam;
+        date_str = ""
         if not evs_meta.empty:
-            unique_names=[n for n in evs_meta["name"].dropna().unique().tolist() if n]
-            fam_name=f"{fam} — " + (" / ".join(unique_names[:3]) + (" …" if len(unique_names)>3 else ""))
-            date=evs_meta["start_dt"].min()
-            date_str=date.date().isoformat() if pd.notna(date) else ""
+            unique_names = [n for n in evs_meta["name"].dropna().unique().tolist() if n]
+            fam_name = f"{fam} — " + (" / ".join(unique_names[:3]) + (" …" if len(unique_names) > 3 else ""))
+            date = evs_meta["start_dt"].min()
+            date_str = date.date().isoformat() if pd.notna(date) else ""
 
         rows.append({"event": fam_name, "date": date_str, "rank": rk,
-                     "record": f"{W}-{L}" + (f"-{T}" if T>0 else ""),
-                     "EPA": round(EPA,4), "EPA Auto": round(EPA_A,4), "EPA Teleop": round(EPA_T,4), "EPA Endgame": round(EPA_E,4),
-                     "OPR": round(opr,4) if pd.notna(opr) else np.nan,
+                     "record": f"{W}-{L}" + (f"-{T}" if T > 0 else ""),
+                     "EPA": round(EPA, 4), "EPA Auto": round(EPA_A, 4), "EPA Teleop": round(EPA_T, 4),
+                     "EPA Endgame": round(EPA_E, 4),
+                     "OPR": round(opr, 4) if pd.notna(opr) else np.nan,
                      "matches": match_cnt})
 
-    df=pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
     if not df.empty:
-        df["date_sort"]=pd.to_datetime(df["date"], errors="coerce")
-        df=df.sort_values(by=["date_sort","event"]).drop(columns=["date_sort"])
+        df["date_sort"] = pd.to_datetime(df["date"], errors="coerce")
+        df = df.sort_values(by=["date_sort", "event"]).drop(columns=["date_sort"])
     return df
+
 
 # ---------- UI ----------
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.caption("Build: **V8** — single-event ranking-only, cached Adv tab")
-
 
 # ---- Manual refresh for cached computations ----
 if st.sidebar.button("🔄 רענון נתונים"):
@@ -1693,7 +1916,7 @@ if st.sidebar.button("🔄 רענון נתונים"):
         st.cache_data.clear()
     except Exception:
         pass
-    st.experimental_rerun()
+    st.rerun()
 
 st.title(APP_TITLE)
 
@@ -1701,8 +1924,10 @@ st.title(APP_TITLE)
 if "team" not in st.session_state:
     st.session_state["team"] = None
 
+
 def _clear_team():
     st.session_state["team"] = None
+
 
 def _select_team(team_id: int | str):
     try:
@@ -1712,7 +1937,7 @@ def _select_team(team_id: int | str):
     st.rerun()
 
 
-user,key,tried=get_credentials()
+user, key, tried = get_credentials()
 if not (user and key):
     st.error("FTC API credentials missing")
     st.code("\\n".join(tried) or "(no paths)")
@@ -1722,25 +1947,26 @@ with st.sidebar:
                "OPR בדירוגים = OPR של *המשפחה האחרונה* של הקבוצה (np, כולל פלייאוף). "
                "ILCMP* מאוחד למשפחה אחת כדי לאחד שלבי בתים וגמר.")
 
-
 # --- Season default (Asia/Jerusalem): before Oct -> last year, from Oct -> current ---
 try:
     from zoneinfo import ZoneInfo
+
     _tz = ZoneInfo("Asia/Jerusalem")
 except Exception:
     _tz = None
 _now = __import__("datetime").datetime.now(_tz) if _tz else __import__("datetime").datetime.now()
 DEFAULT_SEASON = _now.year if _now.month >= 10 else (_now.year - 1)
 
-
-c1,c2 = st.columns([1,1])
-with c1: season = st.number_input("Season", min_value=2018, max_value=2100, value=DEFAULT_SEASON, step=1, key="season_input", on_change=_clear_team)
-with c2: country = st.text_input("Country filter (e.g., IL / ISR / ישראל)", "IL", key="country_input", on_change=_clear_team)
+c1, c2 = st.columns([1, 1])
+with c1: season = st.number_input("Season", min_value=2018, max_value=2100, value=DEFAULT_SEASON, step=1,
+                                  key="season_input", on_change=_clear_team)
+with c2: country = st.text_input("Country filter (e.g., IL / ISR / ישראל)", "IL", key="country_input",
+                                 on_change=_clear_team)
 
 MAX_WORKERS = 16
 with st.spinner("Loading season data..."):
     MAXW = MAX_WORKERS
-    if country.strip().upper() in {"USA","US"}:
+    if country.strip().upper() in {"USA", "US"}:
         MAXW = min(MAXW, 3)
     ev_view, base_raw, teams_master = _safe_dataset(int(season), country, int(MAXW))
 st.session_state["last_dataset"] = (ev_view, base_raw, teams_master)
@@ -1753,23 +1979,22 @@ try:
 except Exception:
     pass
 
-
-
 # === Prefetch heavy computations for all tabs (parallel) ===
 from concurrent.futures import ThreadPoolExecutor
 
 _prefetch_key = (int(season), str(country))
 _need_prefetch = (
-    "prefetch_key" not in st.session_state
-    or st.session_state.get("prefetch_key") != _prefetch_key
-    or any(k not in st.session_state for k in ["rank_df","adv_summary","per_team_detail","diag_df","diag_meta"])
+        "prefetch_key" not in st.session_state
+        or st.session_state.get("prefetch_key") != _prefetch_key
+        or any(k not in st.session_state for k in ["rank_df", "adv_summary", "per_team_detail", "diag_df", "diag_meta"])
 )
 
 if _need_prefetch and not base_raw.empty:
     with st.spinner("Precomputing rankings, advancements, and diagnostics"):
         with ThreadPoolExecutor(max_workers=3) as ex:
             fut_rank = ex.submit(build_ranking_table, ev_view, base_raw, teams_master, country)
-            fut_adv  = ex.submit(compute_advancement_table, ev_view, base_raw, teams_master, country, int(season), pd.DataFrame())
+            fut_adv = ex.submit(compute_advancement_table, ev_view, base_raw, teams_master, country, int(season),
+                                pd.DataFrame())
             fut_diag = ex.submit(build_diagnostics, ev_view, base_raw, teams_master, country)
         rank_df = fut_rank.result()
         adv_summary, per_team_detail = fut_adv.result()
@@ -1787,8 +2012,11 @@ else:
     adv_summary = st.session_state.get("adv_summary")
     per_team_detail = st.session_state.get("per_team_detail")
     diag_df = st.session_state.get("diag_df")
-    diag_meta = st.session_state.get("diag_meta", (0,0))
+    diag_meta = st.session_state.get("diag_meta", (0, 0))
 # === end prefetch ===
+print("Columns in teams_master:", teams_master.columns)
+print(teams_master.head())
+
 st.caption(f"Events aggregated: {base_raw['ev'].nunique() if 'ev' in base_raw.columns else 0} "
            f"(families: {base_raw['ev_family'].nunique() if 'ev_family' in base_raw.columns else 0}) • "
            f"Teams seen: {teams_master['team'].nunique()}")
@@ -1797,9 +2025,8 @@ if base_raw.empty:
     st.warning("No match data found for the selected filters.")
     st.stop()
 
-tab_rank, tab_adv, tab_single, tab_diag = st.tabs(["🏆 Rankings", "🏅 Ranking: Advancements Points", "📅 Ranking: Single Event", "🔎 Diagnostics"])
-
-
+tab_rank, tab_adv, tab_single, tab_diag = st.tabs(
+    ["🏆 Rankings", "🏅 Ranking: Advancements Points", "📅 Ranking: Single Event", "🔎 Diagnostics"])
 
 
 # ---- helper: compact Event code for Rankings inline (overwrite, drop noise) ----
@@ -1809,34 +2036,38 @@ def tidy_epa_inline_df(df):
         return pd.DataFrame()
     # Normalize column names to lower for mapping
     cols = {c.lower(): c for c in df.columns}
+
     def pick(*names):
         for n in names:
             if n in cols:
                 return cols[n]
         return None
+
     # Build tidy frame with best-available columns
     out = pd.DataFrame()
-    ev = pick('event','event_name','ev','ev_name','event code','event_code')
+    ev = pick('event', 'event_name', 'ev', 'ev_name', 'event code', 'event_code')
     if ev: out['Event'] = df[ev]
     epa = pick('epa')
     if epa: out['EPA'] = df[epa]
-    npor = pick('npopr','np_opr','npo','opr_np','opr')
+    npor = pick('npopr', 'np_opr', 'npo', 'opr_np', 'opr')
     if npor: out['npOPR'] = df[npor]
-    auto = pick('epa auto','auto epa','auto_epa','epa_auto')
+    auto = pick('epa auto', 'auto epa', 'auto_epa', 'epa_auto')
     if auto: out['Auto EPA'] = df[auto]
-    tele = pick('epa teleop','teleop epa','teleop_epa','epa_teleop')
+    tele = pick('epa teleop', 'teleop epa', 'teleop_epa', 'epa_teleop')
     if tele: out['Teleop EPA'] = df[tele]
-    endg = pick('epa endgame','endgame epa','endgame_epa','epa_endgame')
+    endg = pick('epa endgame', 'endgame epa', 'endgame_epa', 'epa_endgame')
     if endg: out['Endgame EPA'] = df[endg]
-    rec = pick('record','w-l-t','wl','wlt','record_str')
+    rec = pick('record', 'w-l-t', 'wl', 'wlt', 'record_str')
     if rec: out['Record'] = df[rec]
     # If mapping missed, just return original df as fallback
     if out.empty:
         return df
     return out
+
+
 def _header_cell(txt, shift=0, align='center'):
     a = str(align).lower()
-    just = 'flex-start' if a=='left' else ('flex-end' if a=='right' else 'center')
+    just = 'flex-start' if a == 'left' else ('flex-end' if a == 'right' else 'center')
     return (
         f"<div style='width:100%; direction:ltr; display:flex; justify-content:{just}; align-items:center; "
         f"transform: translateX({shift}px); font-weight:600; letter-spacing:.3px'>{txt}</div>"
@@ -1848,13 +2079,13 @@ def _header_cell(txt, shift=0, align='center'):
 
     # Compute code from existing code columns or parse from name
     def _event_code_from_row(row):
-        for k in ("event_code","code","ev","ev_code","eventCode","event_code_x","event_code_y"):
+        for k in ("event_code", "code", "ev", "ev_code", "eventCode", "event_code_x", "event_code_y"):
             if k in row and not _pd.isna(row[k]):
                 s = str(row[k]).strip()
                 if s:
                     return s
         # Try to parse from textual name
-        for k in ("event","event_name","ev_name","name","Name"):
+        for k in ("event", "event_name", "ev_name", "name", "Name"):
             if k in row and isinstance(row[k], str):
                 m = _re.findall(r"[A-Z]{2,}[A-Z0-9]{2,}", row[k])
                 if m:
@@ -1865,7 +2096,7 @@ def _header_cell(txt, shift=0, align='center'):
     try:
         code_series = df.apply(_event_code_from_row, axis=1)
     except Exception:
-        code_series = _pd.Series([""]*len(df))
+        code_series = _pd.Series([""] * len(df))
 
     # Overwrite/insert Event column
     if "Event" in df.columns:
@@ -1874,8 +2105,8 @@ def _header_cell(txt, shift=0, align='center'):
 
     # Columns to drop (noise / redundant)
     drop_exact = {
-        "event","event_name","ev_name","name","Name","date","matches","match_count",
-        "level","Level","type","Type","EventCode","eventCode"
+        "event", "event_name", "ev_name", "name", "Name", "date", "matches", "match_count",
+        "level", "Level", "type", "Type", "EventCode", "eventCode"
     }
 
     # Also drop any column that is entirely empty strings/NaN (keep numerics)
@@ -1898,6 +2129,7 @@ def _header_cell(txt, shift=0, align='center'):
         df = df.drop(columns=empty_cols)
 
     return df
+
 
 with tab_rank:
     # --- UI polish: chips + compact layout (Rankings only) ---
@@ -1925,27 +2157,35 @@ with tab_rank:
         </style>
     """, unsafe_allow_html=True)
 
+
     def _chip(val, cls):
         s = "" if val is None else str(val)
         return f"<span class='mae-chip {cls}'>{s}</span>"
 
+
     with st.spinner("Computing rankings"):
-        rank_df = rank_df if isinstance(rank_df, pd.DataFrame) else build_rankings_cached(sig, ev_view, base_raw, teams_master, country)
-    st.caption("EPA per Statbotics (moving-average). בעמודת **npOPR** מוצג ה‑OPR של המשפחה האחרונה בעונה (np, כולל פלייאוף). אירועי ILCMP* מאוחדים למשפחה אחת.")
+        rank_df = rank_df if isinstance(rank_df, pd.DataFrame) else build_rankings_cached(sig, ev_view, base_raw,
+                                                                                          teams_master, country)
+    st.caption(
+        "EPA per Statbotics (moving-average). בעמודת **npOPR** מוצג ה‑OPR של המשפחה האחרונה בעונה (np, כולל פלייאוף). אירועי ILCMP* מאוחדים למשפחה אחת.")
     if rank_df.empty:
         st.info("No teams found for this country filter.")
     else:
         COLS = [0.5, 4.6, 0.85, 0.85, 0.85, 0.85, 0.9, 1.1]
         hc = st.columns(COLS, gap='small')
+
+
         def _header_cell(txt, shift=0, align='center', cls=''):
             a = str(align).lower()
-            just = 'flex-start' if a=='left' else ('flex-end' if a=='right' else 'center')
+            just = 'flex-start' if a == 'left' else ('flex-end' if a == 'right' else 'center')
             padl = 'padding-left: 18px;' if ('team' in str(cls).lower()) else ''
             nudge = f"transform: translateX({shift}px);" if isinstance(shift, (int, float)) and shift != 0 else ''
             return (
                 f"<div style='width:100%; direction:ltr; display:flex; justify-content:{just}; align-items:center; "
                 f"{padl}{nudge}font-weight:600; letter-spacing:.3px'>{txt}</div>"
             )
+
+
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
         hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
@@ -1959,7 +2199,8 @@ with tab_rank:
             t_id = getattr(row, "team", None)
             t_name = getattr(row, "team_name", "") or str(t_id)
             label = f"{t_id} – {t_name}" if t_name and str(t_id) not in str(t_name) else str(t_name or t_id)
-            c[0].markdown(f"<div class=\'mae-center\'><div class='mae-rankchip'>{idx}</div></div>", unsafe_allow_html=True)
+            c[0].markdown(f"<div class=\'mae-center\'><div class='mae-rankchip'>{idx}</div></div>",
+                          unsafe_allow_html=True)
             with c[1]:
                 exp = st.expander(label)
                 with exp:
@@ -1974,30 +2215,40 @@ with tab_rank:
                         st.dataframe(df_ev, use_container_width=True, hide_index=True)
                     else:
                         st.info("No games detected for this team in the selected season/country filter.")
+
+
             def _fmt(x):
-                try: return f"{float(x):.1f}"
-                except Exception: return ""
-            c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA',''))}</div>", unsafe_allow_html=True)
-            c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'OPR',''))}</div>", unsafe_allow_html=True)
-            c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA_Auto',''))}</div>", unsafe_allow_html=True)
-            c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA_Teleop',''))}</div>", unsafe_allow_html=True)
-            c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA_Endgame',''))}</div>", unsafe_allow_html=True)
-            c[7].markdown(f"<div class='mae-right'>{getattr(row,'RECORD','') or getattr(row,'Record','')}</div>", unsafe_allow_html=True)
-    csv = rank_df.rename(columns={"OPR":"npOPR"}).to_csv(index=False).encode("utf-8-sig")
-    st.download_button("Download CSV", data=csv, file_name=f"mae_scout_rankings_{country}_{season}.csv", mime="text/csv")
+                try:
+                    return f"{float(x):.1f}"
+                except Exception:
+                    return ""
+
+
+            c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
+            c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
+            c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
+            c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Teleop', ''))}</div>",
+                          unsafe_allow_html=True)
+            c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
+                          unsafe_allow_html=True)
+            c[7].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+                          unsafe_allow_html=True)
+    csv = rank_df.rename(columns={"OPR": "npOPR"}).to_csv(index=False).encode("utf-8-sig")
+    st.download_button("Download CSV", data=csv, file_name=f"mae_scout_rankings_{country}_{season}.csv",
+                       mime="text/csv")
 
 with tab_adv:
-
     # Diagnostics: families detected (from base_raw) & mapped (after compute)
     try:
-        fams_detected = sorted(list(set(base_raw["ev_family"].dropna().astype(str).tolist()))) if "ev_family" in base_raw.columns else []
+        fams_detected = sorted(
+            list(set(base_raw["ev_family"].dropna().astype(str).tolist()))) if "ev_family" in base_raw.columns else []
     except Exception:
         fams_detected = []
     st.caption(f"Families detected (from base): {len(fams_detected)}")
 
-
     # Diagnostics
-    families = sorted(list(set(ev_view.get("ev_family", pd.Series(dtype=str)).dropna().astype(str).tolist()))) if "ev_family" in ev_view.columns else []
+    families = sorted(list(set(ev_view.get("ev_family", pd.Series(dtype=str)).dropna().astype(
+        str).tolist()))) if "ev_family" in ev_view.columns else []
     mapped = 0
     try:
         # quick call matching the compute function's logic
@@ -2009,14 +2260,19 @@ with tab_adv:
 
     st.subheader("Ranking: Advancements Points")
     with st.expander("FTC-Events API (already configured in app) — optional override"):
-        c1,c2 = st.columns(2)
-        user_in = c1.text_input("FTC API Username (or Email)", value=st.secrets.get("ftc_auth_ui", {}).get("user",""), type="default", key="ftc_user_input")
-        token_in = c2.text_input("FTC API Token", value=st.secrets.get("ftc_auth_ui", {}).get("token",""), type="password", key="ftc_token_input")
+        c1, c2 = st.columns(2)
+        user_in = c1.text_input("FTC API Username (or Email)", value=st.secrets.get("ftc_auth_ui", {}).get("user", ""),
+                                type="default", key="ftc_user_input")
+        token_in = c2.text_input("FTC API Token", value=st.secrets.get("ftc_auth_ui", {}).get("token", ""),
+                                 type="password", key="ftc_token_input")
         if st.button("Use these credentials", use_container_width=False):
             st.session_state["ftc_auth_ui"] = {"user": user_in.strip(), "token": token_in.strip()}
             st.success("Credentials saved for this session")
-    st.caption("חישוב נקודות עפ״י מודל ההעפלה החדש של FTC (2025‑2026): Qualification (2‑16), Alliance (21−מס׳ הברית), Playoff (40/20/10/5), Inspire (60/30/15), פרסים אחרים (12/6/3).")
-    up = st.file_uploader("(אופציונלי) העלה קובץ CSV עם נתוני Advancement (team,event/family,qual_rank,field_size,alliance_no,playoff_finish,awards)", type=["csv"], key="adv_csv_upload")
+    st.caption(
+        "חישוב נקודות עפ״י מודל ההעפלה החדש של FTC (2025‑2026): Qualification (2‑16), Alliance (21−מס׳ הברית), Playoff (40/20/10/5), Inspire (60/30/15), פרסים אחרים (12/6/3).")
+    up = st.file_uploader(
+        "(אופציונלי) העלה קובץ CSV עם נתוני Advancement (team,event/family,qual_rank,field_size,alliance_no,playoff_finish,awards)",
+        type=["csv"], key="adv_csv_upload")
     adv_csv_df = None
     if up is not None:
         try:
@@ -2028,7 +2284,8 @@ with tab_adv:
     adv_per_team = st.session_state.get('per_team_detail')
     if not isinstance(adv_summary, pd.DataFrame) or adv_summary.empty:
         with st.spinner("מחשב Advancement Points"):
-            adv_summary, adv_per_team = compute_advancement_table(ev_view, base_raw, teams_master, country, int(season), adv_csv_df)
+            adv_summary, adv_per_team = compute_advancement_table(ev_view, base_raw, teams_master, country, int(season),
+                                                                  adv_csv_df)
         st.session_state['adv_summary'] = adv_summary
         st.session_state['per_team_detail'] = adv_per_team
     if adv_summary.empty:
@@ -2036,15 +2293,19 @@ with tab_adv:
     else:
         COLS = [0.5, 4.6, 1.0, 1.0, 1.0, 1.0, 1.1]
         hc = st.columns(COLS, gap='small')
+
+
         def _header_cell(txt, shift=0, align='center', cls=''):
             a = str(align).lower()
-            just = 'flex-start' if a=='left' else ('flex-end' if a=='right' else 'center')
+            just = 'flex-start' if a == 'left' else ('flex-end' if a == 'right' else 'center')
             padl = 'padding-left: 18px;' if ('team' in str(cls).lower()) else ''
             nudge = f"transform: translateX({shift}px);" if isinstance(shift, (int, float)) and shift != 0 else ''
             return (
                 f"<div style='width:100%; direction:ltr; display:flex; justify-content:{just}; align-items:center; "
                 f"{padl}{nudge}font-weight:600; letter-spacing:.3px'>{txt}</div>"
             )
+
+
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
         hc[2].markdown(_header_cell('AdvPts', 0, 'right'), unsafe_allow_html=True)
@@ -2055,14 +2316,21 @@ with tab_adv:
         st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
         for idx, row in enumerate(adv_summary.itertuples(index=False), start=1):
             c = st.columns(COLS, gap='small')
-            c[0].markdown(f"<div class='mae-center'><div class='mae-rankchip'>{idx}</div></div>", unsafe_allow_html=True)
-            tid = int(getattr(row, "team")); tnm = getattr(row, "team_name")
+            c[0].markdown(f"<div class='mae-center'><div class='mae-rankchip'>{idx}</div></div>",
+                          unsafe_allow_html=True)
+            tid = int(getattr(row, "team"));
+            tnm = getattr(row, "team_name")
             exp = c[1].expander(f"{tid} – {tnm}" if tnm else str(tid), expanded=False)
-            c[2].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'AdvPts')), 'adv')}</div>", unsafe_allow_html=True)
-            c[3].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Qual')), 'qual')}</div>", unsafe_allow_html=True)
-            c[4].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Alliance')), 'alli')}</div>", unsafe_allow_html=True)
-            c[5].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Playoff')), 'play')}</div>", unsafe_allow_html=True)
-            c[6].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Awards')), 'awd')}</div>", unsafe_allow_html=True)
+            c[2].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'AdvPts')), 'adv')}</div>",
+                          unsafe_allow_html=True)
+            c[3].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Qual')), 'qual')}</div>",
+                          unsafe_allow_html=True)
+            c[4].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Alliance')), 'alli')}</div>",
+                          unsafe_allow_html=True)
+            c[5].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Playoff')), 'play')}</div>",
+                          unsafe_allow_html=True)
+            c[6].markdown(f"<div class='mae-right'>{_chip(int(getattr(row, 'Awards')), 'awd')}</div>",
+                          unsafe_allow_html=True)
 
             df_ev = adv_per_team.get(tid)
             with exp:
@@ -2070,16 +2338,16 @@ with tab_adv:
                     show = df_ev.copy()
                     if "composition" in show.columns:
                         comp = show["composition"].apply(lambda d: d if isinstance(d, dict) else {})
-                        for k in ["qual_rank","field_size","alliance_no","playoff_finish","awards"]:
-                            show[k] = comp.apply(lambda x: x.get(k,""))
+                        for k in ["qual_rank", "field_size", "alliance_no", "playoff_finish", "awards"]:
+                            show[k] = comp.apply(lambda x: x.get(k, ""))
                         show = show.drop(columns=["composition"], errors="ignore")
-                    for _col in ["qual_rank","field_size","alliance_no","playoff_finish","awards"]:
+                    for _col in ["qual_rank", "field_size", "alliance_no", "playoff_finish", "awards"]:
                         if _col not in show.columns:
                             show[_col] = ""
-                    for _col in ["event","qual_pts","alliance_pts","playoff_pts","awards_pts","total"]:
+                    for _col in ["event", "qual_pts", "alliance_pts", "playoff_pts", "awards_pts", "total"]:
                         if _col not in show.columns:
                             show[_col] = 0 if _col != "event" else ""
-                    _show_cols = ["event","qual_pts","alliance_pts","playoff_pts","awards_pts","total"]
+                    _show_cols = ["event", "qual_pts", "alliance_pts", "playoff_pts", "awards_pts", "total"]
                     show = show.reindex(columns=_show_cols, fill_value="")
                     st.dataframe(show, use_container_width=True, hide_index=True)
                 else:
@@ -2090,7 +2358,8 @@ with tab_diag:
         # Guarded diagnostics reuse: only use diag_df/diag_meta if they exist
         _use_cached_diag = False
         try:
-            _use_cached_diag = isinstance(diag_df, pd.DataFrame) and isinstance(diag_meta, tuple) and len(diag_meta) == 2
+            _use_cached_diag = isinstance(diag_df, pd.DataFrame) and isinstance(diag_meta, tuple) and len(
+                diag_meta) == 2
         except NameError:
             _use_cached_diag = False
 
@@ -2100,12 +2369,14 @@ with tab_diag:
             dtab, n_matches_opr, n_teams_opr = build_diagnostics(ev_view, base_raw, teams_master, country)
     st.caption(f"npOPR computed on ALL matches: {n_matches_opr} matches across {n_teams_opr} teams.")
     if not dtab.empty:
-        df_corr = dtab[["EPA","OPR"]].dropna()
-        r = float(df_corr["EPA"].corr(df_corr["OPR"])) if len(df_corr)>=3 else float("nan")
+        df_corr = dtab[["EPA", "OPR"]].dropna()
+        r = float(df_corr["EPA"].corr(df_corr["OPR"])) if len(df_corr) >= 3 else float("nan")
         st.subheader(f"EPA vs npOPR correlation: r = {r:.3f}" if not math.isnan(r) else "EPA vs npOPR correlation: n/a")
         k = st.slider("Show top-K outliers", 5, 50, 15, 1)
-        outliers = dtab.assign(abs_delta=lambda d: d["delta(OPR-EPA)"].abs()).sort_values("abs_delta", ascending=False).head(k)
-        cols = ["team","team_name","country","EPA","EPA_Auto","EPA_Teleop","EPA_Endgame","OPR","delta(OPR-EPA)","matches","N_EPA_updates","ally_epa_avg","opp_epa_avg"]
+        outliers = dtab.assign(abs_delta=lambda d: d["delta(OPR-EPA)"].abs()).sort_values("abs_delta",
+                                                                                          ascending=False).head(k)
+        cols = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "delta(OPR-EPA)",
+                "matches", "N_EPA_updates", "ally_epa_avg", "opp_epa_avg"]
         cols = [c for c in cols if c in outliers.columns]
         st.dataframe(outliers[cols], use_container_width=True, height=420)
     else:
@@ -2116,6 +2387,64 @@ with tab_diag:
 # --- Single-event Ranking tab (clean, fast, uses cached ranking df) ---
 
 
+# ---------- FIX: Definition of endgame_points_by_team ----------
+@st.cache_data(ttl=600, show_spinner=False)
+def endgame_points_by_team(season: int, event_code: str, user: str, token: str):
+    """
+    Fetches match details for an event and computes the average endgame and teleop
+    points per team. Returns two dictionaries (endgame_map, teleop_map).
+    """
+    ok, _, payload, _ = api_matches(season, event_code)
+    if not ok:
+        return {}, {}
+
+    df = alliances_rows_from_payload(payload)
+    if df.empty:
+        return {}, {}
+
+    team_scores = []
+    for _, row in df.iterrows():
+        for team_col in ["t1", "t2"]:
+            team_id = row.get(team_col)
+            if pd.notna(team_id):
+                team_scores.append({
+                    "team": int(team_id),
+                    "endgame": float(row.get("endgame", 0.0)),
+                    "teleop": float(row.get("teleop", 0.0))
+                })
+
+    if not team_scores:
+        return {}, {}
+
+    agg_df = pd.DataFrame(team_scores).groupby("team").mean()
+    eg_map = agg_df["endgame"].to_dict()
+    tl_map = agg_df["teleop"].to_dict()
+    return eg_map, tl_map
+
+
+# ---------- END FIX ----------
+
+# ---------- FIX: Definition of _ensure_endgame_epa ----------
+def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override=None) -> pd.DataFrame:
+    """
+    Overrides EPA component columns in a DataFrame if override series are provided.
+    This ensures the display uses more precise, event-specific averages when available.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df_out = df.copy()
+
+    if endgame_override is not None and not endgame_override.empty:
+        df_out["EPA_Endgame"] = df_out["team"].map(endgame_override).fillna(df_out["EPA_Endgame"])
+
+    if teleop_override is not None and not teleop_override.empty:
+        df_out["EPA_Teleop"] = df_out["team"].map(teleop_override).fillna(df_out["EPA_Teleop"])
+
+    return df_out
+
+
+# ---------- END FIX ----------
 
 
 with tab_single:
@@ -2124,9 +2453,11 @@ with tab_single:
 
     # same CSS & helpers as Rankings
     COLS = [0.5, 4.6, 0.85, 0.85, 0.85, 0.85, 0.9, 1.1]
+
+
     def _header_cell(txt, shift=0, align='center', cls=''):
         a = str(align).lower()
-        just = 'flex-start' if a=='left' else ('flex-end' if a=='right' else 'center')
+        just = 'flex-start' if a == 'left' else ('flex-end' if a == 'right' else 'center')
         padl = 'padding-left: 18px;' if ('team' in str(cls).lower()) else ''
         nudge = f"transform: translateX({shift}px);" if isinstance(shift, (int, float)) and shift != 0 else ''
         return (
@@ -2134,23 +2465,30 @@ with tab_single:
             f"{padl}{nudge}font-weight:600; letter-spacing:.3px'>{txt}</div>"
         )
 
+
     # Build events list & collapse ILCMP*
     evs = ev_view.copy()
+
+
     def _country_matches(c, target):
-        cc = str(c or '').strip().upper(); tt = str(target or '').strip().upper()
+        cc = str(c or '').strip().upper();
+        tt = str(target or '').strip().upper()
         if tt in ('', 'WORLD'): return True
         return cc == tt or (cc.startswith('IS') and tt in ('IL', 'ISR', 'ישראל'))
+
+
     if "country" in evs.columns and str(country).strip():
         evs = evs[evs["country"].apply(lambda x: _country_matches(x, country))]
     evs["fam"] = evs["event_code"].astype(str).map(lambda x: family_of(x))
-    codes_non_family = sorted([c for c,f in zip(evs["event_code"].astype(str), evs["fam"]) if f != "ILCMP"])
+    codes_non_family = sorted([c for c, f in zip(evs["event_code"].astype(str), evs["fam"]) if f != "ILCMP"])
     has_ilcmp = any(f == "ILCMP" for f in evs["fam"])
     selector_choices = codes_non_family + (["ILCMP"] if has_ilcmp else [])
 
     if not selector_choices:
         st.info("לא נמצאו אירועים עבור המדינה שנבחרה.")
     else:
-        default_idx = (selector_choices.index("ILCMP") if "ILCMP" in selector_choices else max(len(selector_choices)-1, 0))
+        default_idx = (
+            selector_choices.index("ILCMP") if "ILCMP" in selector_choices else max(len(selector_choices) - 1, 0))
         ev_code = st.selectbox("בחר אירוע", selector_choices, index=default_idx, key="single_event_ev_code")
 
         # Mask matches from base_raw
@@ -2161,12 +2499,13 @@ with tab_single:
         b = base_raw[mask].copy()
 
         import pandas as pd
+
         if b.empty:
             st.info("לא נמצאו משחקים/קבוצות לאירוע.")
         else:
             # event teams
             teams = set()
-            for ccol in ("t1","t2"):
+            for ccol in ("t1", "t2"):
                 if ccol in b.columns:
                     teams |= set(pd.to_numeric(b[ccol], errors="coerce").dropna().astype(int).tolist())
 
@@ -2190,19 +2529,24 @@ with tab_single:
                 # build event-only Record
                 rec = {}
                 try:
-                    for (evv, idxv), rows in b.groupby(["ev","idx"]):
+                    for (evv, idxv), rows in b.groupby(["ev", "idx"]):
                         try:
-                            r = rows[rows["side"]=="red"].iloc[0]; bl = rows[rows["side"]=="blue"].iloc[0]
-                            rs = float(r.get("score", 0)); bs = float(bl.get("score", 0))
+                            r = rows[rows["side"] == "red"].iloc[0];
+                            bl = rows[rows["side"] == "blue"].iloc[0]
+                            rs = float(r.get("score", 0));
+                            bs = float(bl.get("score", 0))
                         except Exception:
                             continue
-                        red = []; blue = []
-                        for col in ("t1","t2"):
-                            try: red.append(int(r.get(col))); blue.append(int(bl.get(col)))
-                            except Exception: pass
-                        for t in red+blue: rec.setdefault(t, {"W":0,"L":0,"T":0})
-                        if abs(rs-bs) < 1e-9:
-                            for t in red+blue: rec[t]["T"] += 1
+                        red = [];
+                        blue = []
+                        for col in ("t1", "t2"):
+                            try:
+                                red.append(int(r.get(col))); blue.append(int(bl.get(col)))
+                            except Exception:
+                                pass
+                        for t in red + blue: rec.setdefault(t, {"W": 0, "L": 0, "T": 0})
+                        if abs(rs - bs) < 1e-9:
+                            for t in red + blue: rec[t]["T"] += 1
                         elif rs > bs:
                             for t in red:  rec[t]["W"] += 1
                             for t in blue: rec[t]["L"] += 1
@@ -2211,24 +2555,26 @@ with tab_single:
                             for t in red:  rec[t]["L"] += 1
                 except Exception:
                     rec = {}
-                rec_df = pd.DataFrame([{"team":t, **v} for t,v in rec.items()]) if rec else pd.DataFrame()
+                rec_df = pd.DataFrame([{"team": t, **v} for t, v in rec.items()]) if rec else pd.DataFrame()
                 if not rec_df.empty:
-                    for c in ["W","L","T"]:
+                    for c in ["W", "L", "T"]:
                         if c not in rec_df.columns: rec_df[c] = 0
                         rec_df[c] = pd.to_numeric(rec_df[c], errors="coerce").fillna(0).astype(int)
-                    rec_df["RECORD"] = rec_df.apply(lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T'])>0 else ""), axis=1)
-                    rank_df2 = rank_df2.merge(rec_df[["team","RECORD"]], on="team", how="left")
+                    rec_df["RECORD"] = rec_df.apply(
+                        lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
+                        axis=1)
+                    rank_df2 = rank_df2.merge(rec_df[["team", "RECORD"]], on="team", how="left")
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
                 # Coalesce merged columns if present
-                if {'RECORD_x','RECORD_y'} <= cols:
+                if {'RECORD_x', 'RECORD_y'} <= cols:
                     rank_df2['RECORD'] = rank_df2['RECORD_x'].fillna('').astype(str)
                     msk = rank_df2['RECORD'].eq('') | rank_df2['RECORD'].isna()
                     rank_df2.loc[msk, 'RECORD'] = rank_df2.loc[msk, 'RECORD_y'].fillna('').astype(str)
-                    rank_df2.drop(columns=[c for c in ['RECORD_x','RECORD_y'] if c in rank_df2.columns], inplace=True)
+                    rank_df2.drop(columns=[c for c in ['RECORD_x', 'RECORD_y'] if c in rank_df2.columns], inplace=True)
                 elif 'RECORD' not in cols and 'Record' in cols:
-                    rank_df2.rename(columns={'Record':'RECORD'}, inplace=True)
+                    rank_df2.rename(columns={'Record': 'RECORD'}, inplace=True)
                 # Ensure exists and string type
                 if 'RECORD' not in rank_df2.columns:
                     rank_df2['RECORD'] = ''
@@ -2245,7 +2591,8 @@ with tab_single:
                 if 'RECORD' not in rank_df2.columns and 'Record' in rank_df2.columns:
                     rank_df2.rename(columns={'Record': 'RECORD'}, inplace=True)
                 else:
-                    rank_df2["RECORD"] = ""
+                    if 'RECORD' not in rank_df2.columns:  # FIX: Check existence before assigning
+                        rank_df2["RECORD"] = ""
 
                 # sort like Rankings
                 try:
@@ -2257,32 +2604,39 @@ with tab_single:
                     if need_fallback:
                         try:
                             if isinstance(rank_df_src, pd.DataFrame) and 'team' in rank_df_src.columns:
-                                rec_col = 'Record' if 'Record' in rank_df_src.columns else ('RECORD' if 'RECORD' in rank_df_src.columns else None)
+                                rec_col = 'Record' if 'Record' in rank_df_src.columns else (
+                                    'RECORD' if 'RECORD' in rank_df_src.columns else None)
                                 if rec_col:
                                     rec_map = rank_df_src.set_index('team')[rec_col]
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = rank_df2.sort_values(["EPA","OPR"], ascending=[False, False]).reset_index(drop=True)
+                    rank_df2 = rank_df2.sort_values(["EPA", "OPR"], ascending=[False, False]).reset_index(drop=True)
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
-                        _token = st.session_state.get("ftc_token_input") or st.secrets.get("ftc_api_token", "90A41204-F536-41DE-B35D-8A128719ED23")
+                        _token = st.session_state.get("ftc_token_input") or st.secrets.get("ftc_api_token",
+                                                                                           "90A41204-F536-41DE-B35D-8A128719ED23")
                     except Exception:
                         _user, _token = "aviad", "90A41204-F536-41DE-B35D-8A128719ED23"
-                    evt_code = st.session_state.get("single_event_code") or selected_event_code
+                    # ---------- FIX: Replaced 'selected_event_code' with 'ev_code' ----------
+                    evt_code = st.session_state.get("single_event_code") or ev_code
+                    # ---------- END FIX ----------
                     eg_map, tl_map = endgame_points_by_team(int(season), str(evt_code), _user, _token)
                     import pandas as _pd
+
                     eg_series = _pd.Series(eg_map, name="EndgameFromAPI")
                     tl_series = _pd.Series(tl_map, name="TeleopCleanFromAPI")
                     if 'team' in rank_df2.columns:
                         end_override = rank_df2['team'].map(eg_series)
                         tele_override = rank_df2['team'].map(tl_series)
                     else:
-                        _parse_team = rank_df2.get('Team','').astype(str).str.extract(r'^(\d+)').iloc[:,0].astype(float)
+                        _parse_team = rank_df2.get('Team', '').astype(str).str.extract(r'^(\d+)').iloc[:, 0].astype(
+                            float)
                         end_override = _parse_team.map(eg_series)
                         tele_override = _parse_team.map(tl_series)
-                    rank_df2 = _ensure_endgame_epa(rank_df2, endgame_override=end_override, teleop_override=tele_override)
+                    rank_df2 = _ensure_endgame_epa(rank_df2, endgame_override=end_override,
+                                                   teleop_override=tele_override)
 
                 except Exception:
                     pass
@@ -2304,48 +2658,60 @@ with tab_single:
                     t_id = getattr(row, "team", None)
                     t_name = getattr(row, "team_name", "") or str(t_id)
                     label = f"{t_id} – {t_name}" if t_name and str(t_id) not in str(t_name) else str(t_name or t_id)
-                    c[0].markdown(f"<div class='mae-center'><div class='mae-rankchip'>{idx}</div></div>", unsafe_allow_html=True)
+                    c[0].markdown(f"<div class='mae-center'><div class='mae-rankchip'>{idx}</div></div>",
+                                  unsafe_allow_html=True)
                     with c[1]:
                         with st.expander(label):
                             import pandas as pd
+
                             # Ensure per_team_detail exists (compute from cache if missing)
                             if not isinstance(st.session_state.get('per_team_detail'), dict):
                                 sig_adv = f"adv|{int(season)}|{str(country).upper()}"
                                 try:
-                                    adv_summary, per_team_detail = build_advancement_cached(sig_adv, base_raw, teams_master, ev_view, country, season)
+                                    adv_summary, per_team_detail = build_advancement_cached(sig_adv, base_raw,
+                                                                                            teams_master, ev_view,
+                                                                                            country, season)
                                     st.session_state['adv_summary'] = adv_summary
                                     st.session_state['per_team_detail'] = per_team_detail
                                 except Exception:
                                     st.session_state['per_team_detail'] = {}
                             ptd = st.session_state.get('per_team_detail') or {}
-                            best = {'qual':0,'alli':0,'play':0,'aw':0}
+                            best = {'qual': 0, 'alli': 0, 'play': 0, 'aw': 0}
                             df_ev = ptd.get(int(t_id)) if isinstance(ptd, dict) else None
                             if isinstance(df_ev, pd.DataFrame) and not df_ev.empty:
                                 fam = family_of(str(ev_code))
                                 sub = pd.DataFrame()
                                 # Prefer using family/code column if present
                                 if fam == 'ILCMP' and 'family' in df_ev.columns:
-                                    sub = df_ev[df_ev['family'].astype(str).str.upper()=='ILCMP']
+                                    sub = df_ev[df_ev['family'].astype(str).str.upper() == 'ILCMP']
                                 elif fam != 'ILCMP' and 'code' in df_ev.columns:
-                                    sub = df_ev[df_ev['code'].astype(str)==str(ev_code)]
+                                    sub = df_ev[df_ev['code'].astype(str) == str(ev_code)]
                                 # If still empty, filter via 'composition' sources (qual/alliance/playoff/awards)
                                 if sub.empty and 'composition' in df_ev.columns:
                                     def _match_comp(comp):
                                         c = comp if isinstance(comp, dict) else {}
-                                        srcs = [c.get('qual_source'), c.get('alliance_source'), c.get('playoff_source'), c.get('awards_source')]
+                                        srcs = [c.get('qual_source'), c.get('alliance_source'), c.get('playoff_source'),
+                                                c.get('awards_source')]
                                         if fam == 'ILCMP':
-                                            return any(isinstance(s,str) and s.upper().startswith('ILCMP') for s in srcs)
+                                            return any(
+                                                isinstance(s, str) and s.upper().startswith('ILCMP') for s in srcs)
                                         else:
-                                            return any(isinstance(s,str) and s.upper()==str(ev_code).upper() for s in srcs)
+                                            return any(
+                                                isinstance(s, str) and s.upper() == str(ev_code).upper() for s in srcs)
+
+
                                     try:
                                         sub = df_ev[df_ev['composition'].apply(_match_comp)]
                                     except Exception:
                                         sub = df_ev.copy()
                                 if not sub.empty:
-                                    for src_col, dst in [('qual_pts','qual'),('alliance_pts','alli'),('playoff_pts','play')]:
+                                    for src_col, dst in [('qual_pts', 'qual'), ('alliance_pts', 'alli'),
+                                                         ('playoff_pts', 'play')]:
                                         if src_col in sub.columns:
-                                            try: best[dst] = int(float(sub[src_col].max()))
-                                            except Exception: best[dst] = 0
+                                            try:
+                                                best[dst] = int(float(sub[src_col].max()))
+                                            except Exception:
+                                                best[dst] = 0
                                     # Awards: prefer exact awards_source
                                     aw_val = 0
                                     if 'composition' in sub.columns:
@@ -2353,7 +2719,10 @@ with tab_single:
                                             c = comp if isinstance(comp, dict) else {}
                                             src = c.get('awards_source')
                                             if not isinstance(src, str): return False
-                                            return (src.upper()=='ILCMP') if fam=='ILCMP' else (src.upper()==str(ev_code).upper())
+                                            return (src.upper() == 'ILCMP') if fam == 'ILCMP' else (
+                                                        src.upper() == str(ev_code).upper())
+
+
                                         try:
                                             exact = sub[sub['composition'].apply(_aw_exact)]
                                             if not exact.empty and 'awards_pts' in exact.columns:
@@ -2362,19 +2731,35 @@ with tab_single:
                                                 aw_val = int(float(sub['awards_pts'].max()))
                                         except Exception:
                                             if 'awards_pts' in sub.columns:
-                                                try: aw_val = int(float(sub['awards_pts'].max()))
-                                                except Exception: aw_val = 0
+                                                try:
+                                                    aw_val = int(float(sub['awards_pts'].max()))
+                                                except Exception:
+                                                    aw_val = 0
                                     best['aw'] = aw_val
                             # Summary
                             ap_tot = int(best['qual'] + best['alli'] + best['play'] + best['aw'])
                             st.markdown(f"**ניקוד העפלה (סה\"כ):** {ap_tot}")
-                            st.markdown(f"• Qual: {best['qual']} | Alliance: {best['alli']} | Playoff: {best['play']} | Awards: {best['aw']}")
+                            st.markdown(
+                                f"• Qual: {best['qual']} | Alliance: {best['alli']} | Playoff: {best['play']} | Awards: {best['aw']}")
+
+
                     def _fmt(x):
-                        try: return f"{float(x):.2f}"
-                        except Exception: return ""
-                    c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA',''))}</div>", unsafe_allow_html=True)
-                    c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'OPR',''))}</div>", unsafe_allow_html=True)
-                    c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA_Auto',''))}</div>", unsafe_allow_html=True)
-                    c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA_Teleop',''))}</div>", unsafe_allow_html=True)
-                    c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row,'EPA_Endgame',''))}</div>", unsafe_allow_html=True)
-                    c[7].markdown(f"<div class='mae-right'>{getattr(row,'RECORD','') or getattr(row,'Record','')}</div>", unsafe_allow_html=True)
+                        try:
+                            return f"{float(x):.2f}"
+                        except Exception:
+                            return ""
+
+
+                    c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Teleop', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[7].markdown(
+                        f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+                        unsafe_allow_html=True)
