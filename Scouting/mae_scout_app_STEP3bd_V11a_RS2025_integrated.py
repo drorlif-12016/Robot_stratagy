@@ -3057,6 +3057,17 @@ with tab_single:
                     import pandas as _pd
 
                     eg_series = _pd.Series(eg_map, name="EndgameFromAPI")
+                    # === RS merge from FTC rankings ===
+                    try:
+                        _evt_code = st.session_state.get("single_event_code") or evt_code
+                        _rsdf = ftc_rankings_df(int(season), str(_evt_code))
+                        if _rsdf is not None and not _rsdf.empty and 'team' in rank_df2.columns:
+                            import pandas as pd
+                            _rs_map = _rsdf.set_index('team')['RS']
+                            rank_df2['RS'] = pd.to_numeric(rank_df2['team'], errors='coerce').map(_rs_map)
+                    except Exception:
+                        pass
+
                     tl_series = _pd.Series(tl_map, name="TeleopCleanFromAPI")
                     if 'team' in rank_df2.columns:
                         end_override = rank_df2['team'].map(eg_series)
