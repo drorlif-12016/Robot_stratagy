@@ -23,6 +23,8 @@ root = tk.Tk()
 root.title("Robot Game Plan GUI")
 
 # --- Load field image ---
+
+#TODO: to change the path of the image
 image_path = "/Users/mishmash/Desktop/coading/Robot_stratagy/Field_picture/Juice-DECODE-Light.png"
 if not os.path.exists(image_path):
     messagebox.showwarning("File not found",
