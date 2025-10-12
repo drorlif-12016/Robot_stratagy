@@ -1,3 +1,4 @@
+import datetime as _dt
 # MAE Scouting – patch13n19d
 # Change from 13n19c: **Family unification rule**
 # - Any event code that starts with "ILCMP" is mapped to the same family "ILCMP".
@@ -5,8 +6,66 @@
 # Everything else identical to 13n19c.
 
 import streamlit as st
-import os, json, pathlib, typing as t, math
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import typing as t
+
+from datetime import datetime
+
+
+def _coerce_season(season):
+    """
+    Clamp season to API supported range: 2006..current active year.
+    """
+    try:
+        y = int(season)
+    except Exception:
+        try:
+            import streamlit as st
+            from datetime import datetime as _dtnow
+            y = int(st.session_state.get("season") or st.session_state.get("Season") or _dtnow.now().year)
+        except Exception:
+            from datetime import datetime as _dtnow
+            y = _dtnow.now().year
+    MIN_SEASON = 2006
+    from datetime import datetime as _dtnow
+    current_active = _dtnow.now().year
+    if y < MIN_SEASON:
+        y = MIN_SEASON
+    if y > current_active:
+        y = current_active
+    return y
+def _set_creds_state(u, t, meta=None):
+    try:
+        import streamlit as st
+        st.session_state['creds_ok'] = bool(u and t)
+        st.session_state['creds_source'] = (meta or {}).get('source') if isinstance(meta, dict) else None
+        st.session_state['creds_path'] = (meta or {}).get('path') if isinstance(meta, dict) else None
+    except Exception:
+        pass
+
+
+def has_creds():
+    try:
+        import streamlit as st, os
+        if st.session_state.get('creds_ok'):
+            return True
+        return bool(os.getenv('FTC_API_USER') and os.getenv('FTC_API_TOKEN'))
+    except Exception:
+        return False
+
+def _ftc_api_diagnostics(season: int):
+    """Quick diagnostic call to FTC API for events endpoint."""
+    try:
+        import requests, os
+        season = _coerce_season(season) if "_coerce_season" in globals() else season
+        url = f"https://ftc-api.firstinspires.org/v2.0/{season}/events"
+        u = globals().get("FTC_USER") or os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
+        k = globals().get("FTC_TOKEN") or os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY")
+        auth = (u, k) if (u and k) else None
+        r = requests.get(url, auth=auth, timeout=20)
+        sample = r.text[:600] if isinstance(r.text, str) else str(r.text)[:600]
+        return {"ok": (200 <= r.status_code < 300), "status": r.status_code, "url": r.url, "sample": sample}
+    except Exception as e:
+        return {"ok": False, "status": None, "url": None, "sample": f"Exception: {e}"}
 
 # --- HTTP Delta Cache (per endpoint+params) ---
 from pathlib import Path as _Path
@@ -51,6 +110,160 @@ import pandas as pd
 import requests
 import streamlit as st
 import re
+
+
+
+
+import os, json, glob
+def load_ftc_credentials():
+
+    import os, json, glob, streamlit as st, hashlib
+
+    FIXED_PATH   = r"C:\Users\RoboMentor\Robot_stratagy\Scouting"
+    ROAMING_PATH = r"C:\Users\RoboMentor\AppData\Roaming\mae_scout"
+
+    def _try_read(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            user  = data.get("username") or data.get("user")
+            token = data.get("token")    or data.get("password")
+            if user and token:
+                return user, token, path
+        except Exception:
+            pass
+        return None, None, None
+
+    def _sha1(path):
+        try:
+            h = hashlib.sha1()
+            with open(path, "rb") as f:
+                h.update(f.read())
+            return h.hexdigest()[:12]
+        except Exception:
+            return None
+
+    # אסוף מועמדים (לזיהוי כפילויות)
+    candidates = []
+    def _add_candidates(base):
+        for pat in ["ftc_credentials.json", "FTC_credentials.json", "*.JASON"]:
+            for f in glob.glob(os.path.join(base, pat)):
+                if os.path.isfile(f):
+                    candidates.append(os.path.abspath(f))
+
+    _add_candidates(FIXED_PATH)
+    _add_candidates(".")
+    _add_candidates(ROAMING_PATH)
+
+    # 1) חיפוש בנתיב הקבוע
+    for f in glob.glob(os.path.join(FIXED_PATH, "ftc_credentials.json")) + \
+             glob.glob(os.path.join(FIXED_PATH, "FTC_credentials.json")) + \
+             glob.glob(os.path.join(FIXED_PATH, "*.JASON")):
+        u, t, p = _try_read(f)
+        if u and t:
+            _report_credentials_source(p, candidates)
+            return u, t
+
+    # 2) חיפוש בתיקייה הנוכחית
+    for f in glob.glob("ftc_credentials.json") + glob.glob("FTC_credentials.json") + glob.glob("*.JASON"):
+        u, t, p = _try_read(f)
+        if u and t:
+            _report_credentials_source(os.path.abspath(p), candidates)
+            return u, t
+
+    # 3) משתני סביבה
+    u = os.getenv("FTC_API_USER")
+    t = os.getenv("FTC_API_TOKEN")
+    if u and t:
+        st.info("🔑 Credentials loaded from environment variables (FTC_API_USER / FTC_API_TOKEN).")
+        if candidates:
+            st.warning("זוהו גם קובצי אישורים בתיקיות, אך נטען מה-ENV. מומלץ לאחד לנתיב קבוע.")
+        return u, t
+
+    # 4) בחירת קובץ / העלאה (פופ-אפ)
+    st.warning("⚠️ לא נמצאו אישורים. ניתן לבחור/להעלות קובץ JSON ונשמור אותו בנתיב הקבוע.")
+    open_picker = st.button("📂 בחר/העלה קובץ Credentials")
+    if open_picker:
+        uploaded = st.file_uploader("בחר את קובץ ה-FTC credentials", type=["json","JASON","txt"], accept_multiple_files=False)
+        if uploaded is not None:
+            try:
+                data  = json.loads(uploaded.getvalue().decode("utf-8", errors="ignore"))
+                user  = data.get("username") or data.get("user")
+                token = data.get("token")    or data.get("password")
+                if not (user and token):
+                    st.error("❌ הקובץ חסר שדות username/token.")
+                    st.stop()
+                os.makedirs(FIXED_PATH, exist_ok=True)
+                out_path = os.path.join(FIXED_PATH, "ftc_credentials.json")
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump({"username": user, "token": token}, f, ensure_ascii=False, indent=2)
+                st.success(f"✅ נשמר בהצלחה: {out_path}")
+                _report_credentials_source(out_path, candidates + [out_path])
+                return user, token
+            except Exception as e:
+                st.error(f"שגיאה בקריאת/שמירת הקובץ: {e}")
+                st.stop()
+
+    st.error("""
+    ❌ לא נמצאו ולא הועלו אישורים ל-FTC API.
+    אפשר לשמור מראש קובץ:
+    C:\\Users\\RoboMentor\\Robot_stratagy\\Scouting\\ftc_credentials.json
+    בפורמט:
+    {
+      "username": "your_username",
+      "token": "your_api_token"
+    }
+    או להגדיר משתני סביבה:
+      FTC_API_USER   ו-  FTC_API_TOKEN
+    """)
+    st.stop()
+
+
+def _report_credentials_source(used_path, all_candidates):
+    """מציג מאיזה קובץ נטענו האישורים ומתריע על כפילויות עם תוכן שונה."""
+    import os, streamlit as st, hashlib
+    used_path = os.path.abspath(used_path)
+    st.info(f"🔑 Credentials loaded from: `{used_path}`")
+
+    def _sha1(p):
+        try:
+            h = hashlib.sha1()
+            with open(p, "rb") as f:
+                h.update(f.read())
+            return h.hexdigest()[:12]
+        except Exception:
+            return None
+
+    others = sorted(set(os.path.abspath(p) for p in all_candidates if os.path.abspath(p) != used_path))
+    if not others:
+        return
+
+    # השוואת hash כדי לזהות תוכן שונה
+    def _hash(p):
+        try:
+            h = hashlib.sha1()
+            with open(p, "rb") as f:
+                h.update(f.read())
+            return h.hexdigest()[:12]
+        except Exception:
+            return None
+
+    used_hash = _hash(used_path)
+    conflicts = []
+    for p in others:
+        h = _hash(p)
+        if h and used_hash and h != used_hash:
+            conflicts.append((p, h))
+
+    if conflicts:
+        st.warning("⚠️ נמצאו קובצי אישורים נוספים עם תוכן שונה:")
+        for p, h in conflicts:
+            st.write(f"- `{p}` (sha1:{h})")
+        st.caption("מומלץ להשאיר קובץ אחד בלבד בנתיב הקבוע ולאחד גרסאות.")
+
+
+# הפוך את האישורים לגלובליים לשאר האפליקציה
+FTC_USER, FTC_TOKEN = load_ftc_credentials()
 
 
 def dedupe_teams_master(teams_master: "pd.DataFrame", ev_view: "pd.DataFrame") -> "pd.DataFrame":
@@ -216,6 +429,32 @@ def _adv_points_col(df):
     return _ev_col(df, ["AdvancementPoints", "adv_points", "adv", "totalPoints", "total_points"])
 
 
+
+def _teams_seen(teams_master, base_raw):
+    import pandas as pd
+    try:
+        if getattr(teams_master, "empty", True) is False:
+            for c in ["team","teamNumber","team_number","number","Team","TEAM"]:
+                if c in teams_master.columns:
+                    try:
+                        return int(pd.to_numeric(teams_master[c], errors="coerce").dropna().nunique())
+                    except Exception:
+                        return int(teams_master[c].dropna().nunique())
+    except Exception:
+        pass
+    try:
+        if getattr(base_raw, "empty", True) is False:
+            # try common per-match team columns
+            for c in ["team","teamNumber","team_number","number","t1","t2","r1","r2","b1","b2","red1","red2","blue1","blue2"]:
+                if c in base_raw.columns:
+                    try:
+                        return int(pd.to_numeric(base_raw[c], errors="coerce").dropna().nunique())
+                    except Exception:
+                        return int(base_raw[c].dropna().nunique())
+    except Exception:
+        pass
+    return 0
+
 def dataset_signature(ev_view, base_raw, teams_master):
     try:
         n_ev = len(ev_view) if ev_view is not None else 0
@@ -311,12 +550,14 @@ USA_CHUNK_SIZE = 25
 import time, requests
 
 
-def _http_get(url, headers=None, params=None, timeout=20.0, retries=2):
+def _http_get(url, headers=None, params=None, timeout=20.0, retries=2, **kwargs):
     import requests, time
     last_exc = None
     for attempt in range(retries + 1):
         try:
-            resp = requests.get(url, headers=headers, params=params, timeout=timeout)
+            kwargs = dict(kwargs)
+            kwargs.setdefault('auth', (FTC_USER, FTC_TOKEN))
+            resp = requests.get(url, headers=headers, params=params, timeout=timeout, **kwargs)
             if resp.status_code >= 500:
                 last_exc = RuntimeError(f"HTTP {resp.status_code} at {url}")
             else:
@@ -567,31 +808,43 @@ from typing import Dict, Any, Optional
 FTC_API_BASE = "https://ftc-api.firstinspires.org"  # v2.0 endpoints; season path now uses 2025 for DECODE
 
 
+
 def _ftc_get_auth():
-    u = None;
-    t = None
+    """Unified credentials resolver: globals -> secrets -> env -> UI -> file."""
+    u = None; t = None
     try:
-        u = st.secrets.get("ftc_username", None)
-        t = st.secrets.get("ftc_token", None)
+        u = globals().get("FTC_USER") or u
+        t = globals().get("FTC_TOKEN") or t
+    except Exception:
+        pass
+    try:
+        import streamlit as st
+        u = u or st.secrets.get("ftc_username", None)
+        t = t or st.secrets.get("ftc_token", None)
+        sec = st.secrets.get("ftc", {})
+        if isinstance(sec, dict):
+            u = u or sec.get("username", None)
+            t = t or sec.get("token", None)
+    except Exception:
+        pass
+    import os
+    u = u or os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
+    t = t or os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY") or os.getenv("FTC_TOKEN")
+    try:
+        import streamlit as st
+        if (u is None or t is None) and st.session_state.get("ftc_auth_ui"):
+            ui = st.session_state.get("ftc_auth_ui")
+            u = u or ui.get("user")
+            t = t or ui.get("token")
     except Exception:
         pass
     if u is None or t is None:
         try:
-            sec = st.secrets.get("ftc", {})
-            if isinstance(sec, dict):
-                u = u or sec.get("username", None)
-                t = t or sec.get("token", None)
+            gu, gt, _ = get_credentials()
+            if gu and gt: u, t = gu, gt
         except Exception:
             pass
-    u = u or os.getenv("FTC_API_USER")
-    t = t or os.getenv("FTC_API_TOKEN")
-    if (u is None or t is None) and st.session_state.get("ftc_auth_ui"):
-        ui = st.session_state.get("ftc_auth_ui")
-        u = u or ui.get("user")
-        t = t or ui.get("token")
     return (u, t)
-
-
 @st.cache_data(show_spinner=False, ttl=180)
 def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     u, tok = _ftc_get_auth()
@@ -613,59 +866,65 @@ def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> 
 
 
 
+
+
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_rankings_df(season: int, event_code: str):
-    season = _coerce_season(season)
+    """
+    Returns rankings with RS (Ranking Score). If API lacks explicit RS,
+    compute RS = total RP / qualification matches played.
+    Columns: team, rank, RS, RP_total, qualMatches.
+    """
+    season = _coerce_season(season) if "_coerce_season" in globals() else season
     data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
     rows = []
+    ranking_list = []
     try:
         ranking_list = data.get("Rankings") or data.get("rankings") or data.get("items") or []
-        for r in ranking_list:
-            def _gi(*keys):
-                for k in keys:
-                    if k in r and r[k] is not None:
-                        return r[k]
-                return None
-            # team & rank
-            team = _gi("teamNumber", "team", "teamId", "number")
-            rank = _gi("rank", "ranking", "qualAverageRank", "qualRank")
-            # RS / Ranking Score (avg RP)
-            rs = _gi("rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
-            # Total RP and matches to compute RS if absent
-            rp_total = _gi("rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
-            matches = _gi("qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
-            # Convert numerics
-            try: team = int(team)
-            except Exception: team = None
-            try: rank = int(rank)
-            except Exception: rank = None
-            try: rs = float(rs) if rs is not None else None
-            except Exception: rs = None
-            try: rp_total = float(rp_total) if rp_total is not None else None
-            except Exception: rp_total = None
-            try: matches = int(matches) if matches is not None else None
-            except Exception: matches = None
-            # Fallback: compute RS when possible
-            if rs is None and rp_total is not None and matches and matches > 0:
-                rs = rp_total / matches
-            if team:
-                row = {"team": team}
-                if rank is not None: row["rank"] = rank
-                if rs is not None: row["RS"] = round(float(rs), 3)
-                if rp_total is not None: row["RP_total"] = float(rp_total)
-                if matches is not None: row["qualMatches"] = int(matches)
-                rows.append(row)
     except Exception:
-        pass
+        ranking_list = []
+
+    def _gi(obj, *keys):
+        for k in keys:
+            if k in obj and obj[k] is not None:
+                return obj[k]
+        return None
+
+    for r in ranking_list:
+        team     = _gi(r, "teamNumber", "team", "teamId", "number")
+        rank     = _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
+        rs       = _gi(r, "rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
+        rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
+        matches  = _gi(r, "qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
+
+        try: team = int(team)
+        except Exception: team = None
+        try: rank = int(rank) if rank is not None else None
+        except Exception: rank = None
+        try: rs = float(rs) if rs is not None else None
+        except Exception: rs = None
+        try: rp_total = float(rp_total) if rp_total is not None else None
+        except Exception: rp_total = None
+        try: matches = int(matches) if matches is not None else None
+        except Exception: matches = None
+
+        if rs is None and rp_total is not None and matches and matches > 0:
+            rs = rp_total / matches
+
+        if team is not None:
+            row = {"team": team}
+            if rank is not None:     row["rank"] = rank
+            if rs is not None:       row["RS"] = round(float(rs), 3)
+            if rp_total is not None: row["RP_total"] = float(rp_total)
+            if matches is not None:  row["qualMatches"] = int(matches)
+            rows.append(row)
+
     import pandas as pd
     df = pd.DataFrame(rows)
-    # Always include columns even if missing
     for col in ("rank","RS","RP_total","qualMatches"):
         if col not in df.columns:
             df[col] = None
     return df[["team","rank","RS","RP_total","qualMatches"]].copy() if not df.empty else df
-
-
 
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_alliances(season: int, event_code: str):
@@ -987,7 +1246,7 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
     return summary, per_team_detail
 
 
-APP_TITLE = "MISHMASH Scouting platform - Version 13n19D (updated: 07.09.2025)"
+APP_TITLE = "MISHMASH Scouting platform - Version 13n21 (V10i) (updated: 07.09.2025)"
 BASE_URL = "https://ftc-api.firstinspires.org"
 TIMEOUT = 25
 TEAMS_PER_ALLIANCE = 2
@@ -1014,7 +1273,9 @@ def family_of(code: str) -> str:
 
 
 # ---------- Credentials & HTTP ----------
+
 def _cred_paths() -> list[str]:
+    import os, pathlib
     here = pathlib.Path(__file__).resolve().parent
     p1 = str(here / "ftc_api_credentials.json")
     appdata = os.getenv("APPDATA") or ""
@@ -1022,12 +1283,22 @@ def _cred_paths() -> list[str]:
     return [p for p in [p1, p2] if p]
 
 
+# === JSON Credentials Loader (patched) ===
 def _load_json_credentials(path: str) -> t.Tuple[t.Optional[str], t.Optional[str]]:
+    """
+    Loads FTC API credentials (username, token/authkey) from a JSON file.
+    Returns (username, key), or (None, None) if missing/invalid.
+    """
     try:
+        import json, os
+        if not path or not os.path.exists(path):
+            return None, None
         with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        user = obj.get("username") or obj.get("user") or obj.get("FTC_API_USER")
-        key = obj.get("api_key") or obj.get("key") or obj.get("FTC_API_KEY")
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None, None
+        user = data.get("username") or data.get("user") or data.get("FTC_USER")
+        key  = data.get("token") or data.get("authkey") or data.get("FTC_TOKEN") or data.get("api_key") or data.get("FTC_API_KEY")
         if user and key:
             return str(user), str(key)
     except Exception:
@@ -1035,10 +1306,17 @@ def _load_json_credentials(path: str) -> t.Tuple[t.Optional[str], t.Optional[str
     return None, None
 
 
+
 def get_credentials() -> t.Tuple[t.Optional[str], t.Optional[str], list[str]]:
     tried = []
-    user = os.getenv("FTC_API_USER")
-    key = os.getenv("FTC_API_KEY")
+    try:
+        gu = globals().get("FTC_USER"); gt = globals().get("FTC_TOKEN")
+        if gu and gt: return gu, gt, tried
+    except Exception:
+        pass
+    import os
+    user = os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
+    key  = os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY") or os.getenv("FTC_TOKEN")
     if user and key:
         return user, key, tried
     for p in _cred_paths():
@@ -1049,14 +1327,15 @@ def get_credentials() -> t.Tuple[t.Optional[str], t.Optional[str], list[str]]:
     return None, None, tried
 
 
+
 def clean(s):
     return (s or "").replace("\\u200f", "").replace("\\u200e", "").replace("\\xa0", " ").strip()
 
 
 def auth_session():
-    u, k, _ = get_credentials()
+    u, k = _ftc_get_auth()
     if not (u and k):
-        raise RuntimeError("FTC_API_USER / FTC_API_KEY missing (env vars or ftc_api_credentials.json)")
+        raise RuntimeError("FTC API credentials missing (user/token). Configure ENV, secrets, or ftc_api_credentials.json")
     s = requests.Session()
     s.auth = (u, k)
     s.headers.update({"Accept": "application/json"})
@@ -1079,21 +1358,66 @@ def get_json_safe(path: str):
 
 
 # ---------- API wrappers ----------
+
+
+
 def events_list(season: int) -> pd.DataFrame:
+    season = _coerce_season(season)
     ok, s, d, u = get_json_safe(f"/v2.0/{season}/events")
-    items = d.get("events", []) if ok and isinstance(d, dict) else []
+
+    items = []
+    if ok and isinstance(d, dict):
+        for k in ("Events","events","items","data","results"):
+            v = d.get(k)
+            if isinstance(v, list) and (len(v) == 0 or isinstance(v[0], dict)):
+                items = v
+                break
+        if not items:
+            for v in d.values():
+                if isinstance(v, list) and (len(v) == 0 or isinstance(v[0], dict)):
+                    if len(v) == 0:
+                        items = v; break
+                    cand = v[0]
+                    if any(k in cand for k in ("code","eventCode","name","eventName","country","countryCode","startDate","dateStart")):
+                        items = v; break
+
     rows = []
-    for ev in items:
-        code = clean(str(ev.get("code") or ev.get("eventCode") or ""))
-        name = clean(str(ev.get("name") or ev.get("eventName") or ""))
+    for ev in (items or []):
+        code_   = clean(str(ev.get("code") or ev.get("eventCode") or ""))
+        name    = clean(str(ev.get("name") or ev.get("eventName") or ""))
         country = clean(str(ev.get("countryCode") or ev.get("country") or ""))
-        start = ev.get("dateStart") or ev.get("startDate") or ev.get("start")
-        rows.append({"event_code": code.upper(), "name": name, "country": country.upper(), "start": start,
-                     "family": family_of(code)})
+        start   = ev.get("dateStart") or ev.get("startDate") or ev.get("start")
+        rows.append({"event_code": code_.upper(), "name": name, "country": country.upper(), "start": start,
+                     "family": family_of(code_)})
+
     df = pd.DataFrame(rows)
-    if not df.empty:
-        df["start_dt"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
+    if df.empty:
+        try:
+            import streamlit as st
+            total = 0 if not isinstance(items, list) else len(items)
+            keys = list((items[0].keys())) if isinstance(items, list) and items else []
+            st.warning(f"Failed to list events: empty events dataframe. Check credentials/network (server ok={ok}, items={total})")
+            if isinstance(d, dict):
+                st.caption("Top-level keys from API:"); st.code(", ".join(list(d.keys())[:40]))
+            if keys:
+                st.caption("First event keys:"); st.code(", ".join(list(keys)[:40]))
+        except Exception:
+            pass
+        return pd.DataFrame(columns=["event_code","name","country","start","family"])
+
+    try:
+        import streamlit as st
+        country_filter = (st.session_state.get("country_filter") or st.session_state.get("Country") or "").strip().upper()
+        if country_filter:
+            df = df[df["country"] == country_filter].copy()
+    except Exception:
+        pass
+
+    df["start_dt"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
     return df
+
+
+
 
 
 def api_teams(season: int, code: str):    return get_json_safe(f"/v2.0/{season}/teams?eventCode={code}")
@@ -1988,8 +2312,65 @@ def _select_team(team_id: int | str):
 
 
 user, key, tried = get_credentials()
+def ensure_ftc_creds_interactive(default_season=None):
+    """
+    If credentials are missing or API rejects them (401/403), prompt user to upload
+    ftc_api_credentials.json and save it to %APPDATA%\mae_scout\ftc_api_credentials.json.
+    """
+    import os, json, pathlib
+    import streamlit as st
+
+    status = None
+    try:
+        season_probe = default_season or (st.session_state.get("season") or st.session_state.get("Season"))
+        if "_ftc_api_diagnostics" in globals() and season_probe:
+            diag = _ftc_api_diagnostics(_coerce_season(season_probe))
+            status = (diag or {}).get("status")
+    except Exception:
+        pass
+
+    need_upload = (not has_creds()) or (status in (401,403))
+    if not need_upload:
+        return False
+
+    st.warning("FTC API credentials missing or invalid. Please upload ftc_api_credentials.json")
+    uploaded = st.file_uploader("Upload ftc_api_credentials.json", type=["json"], key="ftc_json_upl")
+    if uploaded is not None:
+        try:
+            data = json.load(uploaded)
+            user = data.get("username") or data.get("user") or data.get("FTC_USER")
+            key  = data.get("authkey")  or data.get("token") or data.get("FTC_TOKEN") or data.get("api_key")
+            if user and key:
+                appdata = os.getenv("APPDATA") or ""
+                target = pathlib.Path(appdata) / "mae_scout" / "ftc_api_credentials.json" if appdata else pathlib.Path("ftc_api_credentials.json")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with open(target, "w", encoding="utf-8") as f:
+                    json.dump({"user": user, "token": key}, f)
+                st.success(f"Credentials saved to: {target}")
+                os.environ["FTC_API_USER"] = str(user)
+                os.environ["FTC_API_TOKEN"] = str(key)
+                _set_creds_state(user, key, {"source":"file","path":str(target)})
+                return True
+            else:
+                st.error("Uploaded JSON does not contain username/token fields.")
+        except Exception as e:
+            st.error(f"Failed to parse uploaded file: {e}")
+    return False
+if 'st' in globals():
+    try:
+        ensure_ftc_creds_interactive(
+            default_season=(st.session_state.get('season') if hasattr(st, 'session_state') and 'season' in st.session_state else None)
+        )
+    except Exception as _e:
+        try:
+            st.warning(f"Credential check skipped: {_e}")
+        except Exception:
+            pass
 if not (user and key):
-    st.error("FTC API credentials missing")
+    if not has_creds():
+        st.error("FTC API credentials missing")
+    else:
+        st.empty()
     st.code("\\n".join(tried) or "(no paths)")
 
 with st.sidebar:
@@ -2008,8 +2389,8 @@ _now = __import__("datetime").datetime.now(_tz) if _tz else __import__("datetime
 DEFAULT_SEASON = _now.year if _now.month >= 10 else (_now.year - 1)
 
 c1, c2 = st.columns([1, 1])
-with c1: season = st.number_input("Season", min_value=2018, max_value=2100, value=DEFAULT_SEASON, step=1,
-                                  key="season_input", on_change=_clear_team)
+with c1:
+    season = st.number_input("Season", min_value=2006, value=DEFAULT_SEASON, step=1, key="season_input", on_change=_clear_team)
 with c2: country = st.text_input("Country filter (e.g., IL / ISR / ישראל)", "IL", key="country_input",
                                  on_change=_clear_team)
 
@@ -2069,7 +2450,7 @@ print(teams_master.head())
 
 st.caption(f"Events aggregated: {base_raw['ev'].nunique() if 'ev' in base_raw.columns else 0} "
            f"(families: {base_raw['ev_family'].nunique() if 'ev_family' in base_raw.columns else 0}) • "
-           f"Teams seen: {teams_master['team'].nunique()}")
+           f"Teams seen: {_teams_seen(teams_master, base_raw)}")
 
 if base_raw.empty:
     st.warning("No match data found for the selected filters.")
@@ -2570,11 +2951,11 @@ with tab_single:
                     rank_df2 = pd.DataFrame()
 
             if rank_df2.empty:
-                st.info("No teams found for this country/event filter.")
+                rank_df2 = _ensure_rs_col(rank_df2)
             else:
                 # keep only teams in this event
                 if teams:
-                    \1rank_df2 = _ensure_rs_col(rank_df2)
+                    rank_df2 = _ensure_rs_col(rank_df2)
 
                 # build event-only Record
                 rec = {}
@@ -2613,7 +2994,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    \1rank_df2 = _ensure_rs_col(rank_df2)
+                    rank_df2 = _ensure_rs_col(rank_df2)
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -2661,7 +3042,7 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    \1rank_df2 = _ensure_rs_col(rank_df2)
+                    rank_df2 = _ensure_rs_col(rank_df2)
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
@@ -2821,3 +3202,6 @@ def _ensure_rs_col(df):
     if "RS" not in df.columns:
         df["RS"] = pd.NA
     return df
+
+
+# === V10h: Interactive credentials fixer ===
