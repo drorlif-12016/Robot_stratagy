@@ -294,6 +294,18 @@ def _save_snapshot(kind: str, season: int, country: str, df):
 
 
 USA_MAX_WORKERS = 3
+
+def _coerce_season(season):
+    try:
+        return int(season)
+    except Exception:
+        try:
+            import streamlit as st
+            s = st.session_state.get("season") or st.session_state.get("Season") or DEFAULT_SEASON
+            return int(s)
+        except Exception:
+            return DEFAULT_SEASON
+
 USA_CHUNK_SIZE = 25
 
 import time, requests
@@ -552,7 +564,7 @@ def adv_awards_points(awards):
 import os, requests
 from typing import Dict, Any, Optional
 
-FTC_API_BASE = "https://ftc-api.firstinspires.org"
+FTC_API_BASE = "https://ftc-api.firstinspires.org"  # v2.0 endpoints; season path now uses 2025 for DECODE
 
 
 def _ftc_get_auth():
@@ -600,21 +612,59 @@ def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> 
         return {}
 
 
+
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_rankings_df(season: int, event_code: str):
+    season = _coerce_season(season)
     data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
     rows = []
     try:
         ranking_list = data.get("Rankings") or data.get("rankings") or data.get("items") or []
         for r in ranking_list:
-            team = int(r.get("teamNumber") or r.get("team") or r.get("teamId") or 0)
-            rank = int(r.get("rank") or r.get("ranking") or 0)
-            if team and rank:
-                rows.append({"team": team, "rank": rank})
+            def _gi(*keys):
+                for k in keys:
+                    if k in r and r[k] is not None:
+                        return r[k]
+                return None
+            # team & rank
+            team = _gi("teamNumber", "team", "teamId", "number")
+            rank = _gi("rank", "ranking", "qualAverageRank", "qualRank")
+            # RS / Ranking Score (avg RP)
+            rs = _gi("rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
+            # Total RP and matches to compute RS if absent
+            rp_total = _gi("rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
+            matches = _gi("qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
+            # Convert numerics
+            try: team = int(team)
+            except Exception: team = None
+            try: rank = int(rank)
+            except Exception: rank = None
+            try: rs = float(rs) if rs is not None else None
+            except Exception: rs = None
+            try: rp_total = float(rp_total) if rp_total is not None else None
+            except Exception: rp_total = None
+            try: matches = int(matches) if matches is not None else None
+            except Exception: matches = None
+            # Fallback: compute RS when possible
+            if rs is None and rp_total is not None and matches and matches > 0:
+                rs = rp_total / matches
+            if team:
+                row = {"team": team}
+                if rank is not None: row["rank"] = rank
+                if rs is not None: row["RS"] = round(float(rs), 3)
+                if rp_total is not None: row["RP_total"] = float(rp_total)
+                if matches is not None: row["qualMatches"] = int(matches)
+                rows.append(row)
     except Exception:
         pass
     import pandas as pd
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Always include columns even if missing
+    for col in ("rank","RS","RP_total","qualMatches"):
+        if col not in df.columns:
+            df[col] = None
+    return df[["team","rank","RS","RP_total","qualMatches"]].copy() if not df.empty else df
+
 
 
 @st.cache_data(show_spinner=False, ttl=300)
@@ -2171,7 +2221,7 @@ with tab_rank:
     if rank_df.empty:
         st.info("No teams found for this country filter.")
     else:
-        COLS = [0.5, 4.6, 0.85, 0.85, 0.85, 0.85, 0.9, 1.1]
+        COLS = [0.5, 4.6, 0.85, 0.9, 0.85, 0.85, 0.85, 0.9, 1.1]  # added RS col
         hc = st.columns(COLS, gap='small')
 
 
@@ -2452,7 +2502,7 @@ with tab_single:
     st.markdown("### 🧭 אירוע בודד — EPA (מתבסס על הנתונים שכבר נטענו)")
 
     # same CSS & helpers as Rankings
-    COLS = [0.5, 4.6, 0.85, 0.85, 0.85, 0.85, 0.9, 1.1]
+    COLS = [0.5, 4.6, 0.85, 0.9, 0.85, 0.85, 0.85, 0.9, 1.1]  # added RS col
 
 
     def _header_cell(txt, shift=0, align='center', cls=''):
@@ -2524,7 +2574,7 @@ with tab_single:
             else:
                 # keep only teams in this event
                 if teams:
-                    rank_df2 = rank_df2[rank_df2["team"].isin(sorted(teams))].copy()
+                    \1rank_df2 = _ensure_rs_col(rank_df2)
 
                 # build event-only Record
                 rec = {}
@@ -2563,7 +2613,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    rank_df2 = rank_df2.merge(rec_df[["team", "RECORD"]], on="team", how="left")
+                    \1rank_df2 = _ensure_rs_col(rank_df2)
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -2611,7 +2661,7 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = rank_df2.sort_values(["EPA", "OPR"], ascending=[False, False]).reset_index(drop=True)
+                    \1rank_df2 = _ensure_rs_col(rank_df2)
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
@@ -2763,3 +2813,11 @@ with tab_single:
                     c[7].markdown(
                         f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
+
+def _ensure_rs_col(df):
+    import pandas as pd
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if "RS" not in df.columns:
+        df["RS"] = pd.NA
+    return df
