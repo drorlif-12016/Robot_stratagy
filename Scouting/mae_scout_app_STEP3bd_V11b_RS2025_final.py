@@ -1,4 +1,6 @@
 import datetime as _dt
+import math
+
 # MAE Scouting – patch13n19d
 # Change from 13n19c: **Family unification rule**
 # - Any event code that starts with "ILCMP" is mapped to the same family "ILCMP".
@@ -429,7 +431,8 @@ def _adv_team_col(df):
 def _adv_points_col(df):
     return _ev_col(df, ["AdvancementPoints", "adv_points", "adv", "totalPoints", "total_points"])
 
-
+def _rs_points(df):
+    return _ev_col(df, ["", "Ranking_score", "rs", "RS",])
 
 def _teams_seen(teams_master, base_raw):
     import pandas as pd
@@ -1247,7 +1250,7 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
     return summary, per_team_detail
 
 
-APP_TITLE = "MISHMASH Scouting platform - Version 13n21 (V10i) (updated: 07.09.2025)"
+APP_TITLE = "MISHMASH Scouting platform - Version STEP3bd (V11b) (updated: 15.10.2025)"
 BASE_URL = "https://ftc-api.firstinspires.org"
 TIMEOUT = 25
 TEAMS_PER_ALLIANCE = 2
@@ -1912,6 +1915,7 @@ def rankings_for_event(season: int, code: str) -> pd.DataFrame:
         rows.append({"team": int(t), "rank": _get_int("rank", "Rank"),
                      "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T")})
     return pd.DataFrame(rows)
+
 
 
 @st.cache_data(ttl=1800, show_spinner=True)
@@ -2952,7 +2956,7 @@ with tab_single:
                     rank_df2 = pd.DataFrame()
 
             if rank_df2.empty:
-                rank_df2 = _ensure_rs_col(rank_df2)
+                rank_df2 =  _ensure_rs_col(rank_df2)
             else:
                 # keep only teams in this event
                 if teams:
@@ -3094,6 +3098,7 @@ with tab_single:
                 hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
                 hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
                 hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+                hc[8].markdown(_header_cell('RS', 36, 'right'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
                 for idx, row in enumerate(rank_df2.itertuples(index=False), start=1):
@@ -3203,7 +3208,9 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[7].markdown(
+                    c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[8].markdown(
                         f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
 
@@ -3211,9 +3218,6 @@ def _ensure_rs_col(df):
     import pandas as pd
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
-    if "RS" not in df.columns:
-        df["RS"] = pd.NA
-    return df
-
+    return None
 
 # === V10h: Interactive credentials fixer ===
