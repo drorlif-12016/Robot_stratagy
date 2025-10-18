@@ -1,5 +1,3 @@
-import datetime as _dt
-import math
 
 # MAE Scouting – patch13n19d
 # Change from 13n19c: **Family unification rule**
@@ -7,10 +5,16 @@ import math
 #   This unifies Israeli Championship divisions (e.g., ILCMPHDRO / ILCMPSOLR / ILCMPARC / ILCMPPCF) with ILCMP finals.
 # Everything else identical to 13n19c.
 
-import streamlit as st
+import streamlit as st ,os ,hashlib
+import os, json, glob, streamlit as st, hashlib
 import typing as t
+import numpy as np
+import pandas as pd
+import requests
+import datetime as _dt
+import math
+import re
 
-from datetime import datetime
 
 
 def _coerce_season(season):
@@ -21,7 +25,6 @@ def _coerce_season(season):
         y = int(season)
     except Exception:
         try:
-            import streamlit as st
             from datetime import datetime as _dtnow
             y = int(st.session_state.get("season") or st.session_state.get("Season") or _dtnow.now().year)
         except Exception:
@@ -37,7 +40,7 @@ def _coerce_season(season):
     return y
 def _set_creds_state(u, t, meta=None):
     try:
-        import streamlit as st
+
         st.session_state['creds_ok'] = bool(u and t)
         st.session_state['creds_source'] = (meta or {}).get('source') if isinstance(meta, dict) else None
         st.session_state['creds_path'] = (meta or {}).get('path') if isinstance(meta, dict) else None
@@ -47,7 +50,7 @@ def _set_creds_state(u, t, meta=None):
 
 def has_creds():
     try:
-        import streamlit as st, os
+
         if st.session_state.get('creds_ok'):
             return True
         return bool(os.getenv('FTC_API_USER') and os.getenv('FTC_API_TOKEN'))
@@ -107,19 +110,13 @@ def _save_meta():
     _FTC_META.write_text(_json.dumps(_META, indent=2), encoding="utf-8")
 
 
-import numpy as np
-import pandas as pd
-import requests
-import streamlit as st
-import re
 
 
 
 
-import os, json, glob
+
 def load_ftc_credentials():
 
-    import os, json, glob, streamlit as st, hashlib
 #TODO: change the pathes if the API dose not recognize the path
 
     FIXED_PATH   = r"/Users/mishmash/Desktop/coading/Robot_stratagy/Scouting"
@@ -224,7 +221,6 @@ def load_ftc_credentials():
 
 def _report_credentials_source(used_path, all_candidates):
     """מציג מאיזה קובץ נטענו האישורים ומתריע על כפילויות עם תוכן שונה."""
-    import os, streamlit as st, hashlib
     used_path = os.path.abspath(used_path)
     st.info(f"🔑 Credentials loaded from: `{used_path}`")
 
@@ -431,8 +427,7 @@ def _adv_team_col(df):
 def _adv_points_col(df):
     return _ev_col(df, ["AdvancementPoints", "adv_points", "adv", "totalPoints", "total_points"])
 
-def _rs_points(df):
-    return _ev_col(df, ["", "Ranking_score", "rs", "RS",])
+
 
 def _teams_seen(teams_master, base_raw):
     import pandas as pd
@@ -543,7 +538,6 @@ def _coerce_season(season):
         return int(season)
     except Exception:
         try:
-            import streamlit as st
             s = st.session_state.get("season") or st.session_state.get("Season") or DEFAULT_SEASON
             return int(s)
         except Exception:
@@ -822,7 +816,6 @@ def _ftc_get_auth():
     except Exception:
         pass
     try:
-        import streamlit as st
         u = u or st.secrets.get("ftc_username", None)
         t = t or st.secrets.get("ftc_token", None)
         sec = st.secrets.get("ftc", {})
@@ -835,7 +828,6 @@ def _ftc_get_auth():
     u = u or os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
     t = t or os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY") or os.getenv("FTC_TOKEN")
     try:
-        import streamlit as st
         if (u is None or t is None) and st.session_state.get("ftc_auth_ui"):
             ui = st.session_state.get("ftc_auth_ui")
             u = u or ui.get("user")
@@ -1397,7 +1389,6 @@ def events_list(season: int) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
         try:
-            import streamlit as st
             total = 0 if not isinstance(items, list) else len(items)
             keys = list((items[0].keys())) if isinstance(items, list) and items else []
             st.warning(f"Failed to list events: empty events dataframe. Check credentials/network (server ok={ok}, items={total})")
@@ -1410,7 +1401,6 @@ def events_list(season: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["event_code","name","country","start","family"])
 
     try:
-        import streamlit as st
         country_filter = (st.session_state.get("country_filter") or st.session_state.get("Country") or "").strip().upper()
         if country_filter:
             df = df[df["country"] == country_filter].copy()
@@ -2286,7 +2276,7 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
 
 
 # ---------- UI ----------
-st.set_page_config(page_title=APP_TITLE, layout="wide")
+
 st.caption("Build: **V8** — single-event ranking-only, cached Adv tab")
 
 # ---- Manual refresh for cached computations ----
@@ -2323,7 +2313,7 @@ def ensure_ftc_creds_interactive(default_season=None):
     ftc_api_credentials.json and save it to %APPDATA%\mae_scout\ftc_api_credentials.json.
     """
     import os, json, pathlib
-    import streamlit as st
+
 
     status = None
     try:
@@ -2630,6 +2620,7 @@ with tab_rank:
         hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
         hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
         hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+        hc[8].markdown(_header_cell('RS', 0, 'center' ), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
             c = st.columns(COLS, gap="small")
             t_id = getattr(row, "team", None)
@@ -2881,6 +2872,11 @@ def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override
 
 
 # ---------- END FIX ----------
+def _ensure_rs_col (df):
+    import pandas as pd
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    return None
 
 
 with tab_single:
@@ -3210,14 +3206,7 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[8].markdown(
-                        f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+                    c[8].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
-
-def _ensure_rs_col(df):
-    import pandas as pd
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return df
-    return None
 
 # === V10h: Interactive credentials fixer ===
