@@ -2872,11 +2872,90 @@ def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override
 
 
 # ---------- END FIX ----------
-def _ensure_rs_col (df):
+def _ensure_rs_col(df):
+    """
+    Ensure a numeric 'RS' column exists in df.
+
+    Behavior:
+    - If df is None/empty or not a DataFrame -> return as-is.
+    - If an 'RS' column already exists -> coerce to numeric and return.
+    - Try to compute RS = total_ranking_points / matches_played using many common column name variants.
+    - If an average/RS-like column exists (avg_rp, ranking_score), use that.
+    - Otherwise create an RS column with NA values (keeps DataFrame shape).
+    """
     import pandas as pd
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return df
-    return None
+    import numpy as np
+
+
+    df_out = df.copy()
+
+    # build case-insensitive map of existing column names
+    col_lower = {c.lower(): c for c in df_out.columns}
+
+    # 1) If RS already present, coerce and return
+    if 'rs' in col_lower:
+        df_out[col_lower['rs']] = pd.to_numeric(df_out[col_lower['rs']], errors='coerce')
+        # unify name to 'RS' (uppercase) for downstream code expecting that name
+        if col_lower['rs'] != 'RS':
+            df_out = df_out.rename(columns={col_lower['rs']: 'RS'})
+        return df_out
+
+    # 2) Candidate names for total ranking points and for matches played
+    rp_candidates = [
+        'rankingpoints', 'ranking_points', 'rankingpoints_total', 'ranking_points_total',
+        'rp', 'total_rp', 'total_ranking_points', 'advancementpoints', 'adv_points', 'total_points'
+    ]
+    matches_candidates = [
+        'matches', 'matches_played', 'played', 'qualification_matches', 'qual_matches',
+        'qualification_matches_played', 'matchesplayed', 'num_matches', 'n_matches'
+    ]
+
+    def find_col(cands):
+        for c in cands:
+            if c in col_lower:
+                return col_lower[c]
+        return None
+
+    rp_col = find_col(rp_candidates)
+    matches_col = find_col(matches_candidates)
+
+    # 3) Compute RS if both total RP and matches columns are available
+    if rp_col and matches_col:
+        rp_ser = pd.to_numeric(df_out[rp_col], errors='coerce')
+        matches_ser = pd.to_numeric(df_out[matches_col], errors='coerce')
+        # avoid division by zero — set RS to NaN where matches <= 0 or NaN
+        safe_matches = matches_ser.replace({0: np.nan})
+        rs_series = rp_ser / safe_matches
+        df_out['RS'] = pd.to_numeric(rs_series, errors='coerce')
+        return df_out
+
+    # 4) If an average / precomputed RS-like column exists, use it
+    avg_candidates = [
+        'avg_rp', 'avg_ranking_points', 'ranking_points_avg', 'rp_avg',
+        'ranking_score', 'ranking_score_avg', 'avg_ranking_score'
+    ]
+    avg_col = find_col(avg_candidates)
+    if avg_col:
+        df_out['RS'] = pd.to_numeric(df_out[avg_col], errors='coerce')
+        return df_out
+
+    # 5) If the FTC API rankings DF was merged earlier it might contain e.g. 'RankingPoints' or 'Matches'
+    #    Try a more permissive lookup for any column containing 'rank' & 'point' or 'match'
+    if not any(k in col_lower for k in ['rp', 'ranking', 'rank']) or not any(k in col_lower for k in ['match', 'played', 'matches']):
+        # fallback heuristics
+        possible_rp = next((col for low, col in col_lower.items() if ('rank' in low and 'point' in low) or low == 'rp'), None)
+        possible_matches = next((col for low, col in col_lower.items() if 'match' in low or 'played' in low or 'n_matches' in low), None)
+        if possible_rp and possible_matches:
+            rp_ser = pd.to_numeric(df_out[possible_rp], errors='coerce')
+            matches_ser = pd.to_numeric(df_out[possible_matches], errors='coerce')
+            safe_matches = matches_ser.replace({0: np.nan})
+            df_out['RS'] = pd.to_numeric(rp_ser / safe_matches, errors='coerce')
+            return df_out
+
+    # 6) Last resort: create RS column filled with NaN so downstream code can rely on its existence
+    df_out['RS'] = pd.NA
+    return df_out
+
 
 
 with tab_single:
@@ -3087,14 +3166,14 @@ with tab_single:
                 # Header
                 hc = st.columns(COLS, gap='small')
                 hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
-                hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-                hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
-                hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
-                hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
-                hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
-                hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-                hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
-                hc[8].markdown(_header_cell('RS', 36, 'right'), unsafe_allow_html=True)
+                hc[1].markdown(_header_cell('Team', 0, 'center', 'team'), unsafe_allow_html=True)
+                hc[2].markdown(_header_cell('EPA', -18, 'center'), unsafe_allow_html=True)
+                hc[3].markdown(_header_cell('npOPR', 0, 'center'), unsafe_allow_html=True)
+                hc[4].markdown(_header_cell('Auto EPA', 0, 'center'), unsafe_allow_html=True)
+                hc[5].markdown(_header_cell('Teleop EPA', 0, 'center'), unsafe_allow_html=True)
+                hc[6].markdown(_header_cell('Endgame EPA', 36, 'center'), unsafe_allow_html=True)
+                hc[7].markdown(_header_cell('RS', 36, 'center'), unsafe_allow_html=True)
+                hc[8].markdown(_header_cell('Record', 0, 'center'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
                 for idx, row in enumerate(rank_df2.itertuples(index=False), start=1):
