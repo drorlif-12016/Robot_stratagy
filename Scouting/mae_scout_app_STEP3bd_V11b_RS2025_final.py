@@ -171,6 +171,7 @@ def load_ftc_credentials():
             _report_credentials_source(os.path.abspath(p), candidates)
             return u, t
 
+
     # 3) משתני סביבה
     u = os.getenv("FTC_API_USER")
     t = os.getenv("FTC_API_TOKEN")
@@ -887,9 +888,9 @@ def ftc_rankings_df(season: int, event_code: str):
         return None
 
     for r in ranking_list:
+
         team     = _gi(r, "teamNumber", "team", "teamId", "number")
         rank     = _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
-        rs       = _gi(r, "rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
         rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
         matches  = _gi(r, "qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
 
@@ -1823,6 +1824,7 @@ def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFram
             })
 
     final_df = pd.DataFrame({"team": list(EPA.keys())})
+    final_df["rs"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA_Auto"] = pd.to_numeric(final_df["team"].map(EPA_A), errors="coerce")
     final_df["EPA_Endgame"] = pd.to_numeric(final_df["team"].map(EPA_E), errors="coerce")
@@ -2614,13 +2616,13 @@ with tab_rank:
 
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-        hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
-        hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
-        hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-        hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
-        hc[8].markdown(_header_cell('RS', 0, 'center' ), unsafe_allow_html=True)
+        hc[2].markdown(_header_cell('RS', 0, 'center' ), unsafe_allow_html=True)
+        hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+        hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+        hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
+        hc[8].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
             c = st.columns(COLS, gap="small")
             t_id = getattr(row, "team", None)
@@ -2650,7 +2652,7 @@ with tab_rank:
                 except Exception:
                     return ""
 
-
+            c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>", unsafe_allow_html=True)
             c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
             c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
             c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
@@ -3031,11 +3033,11 @@ with tab_single:
                     rank_df2 = pd.DataFrame()
 
             if rank_df2.empty:
-                rank_df2 =  _ensure_rs_col(rank_df2)
+                rank_df2 =  _ensure_rs_col
             else:
                 # keep only teams in this event
                 if teams:
-                    rank_df2 = _ensure_rs_col(rank_df2)
+                    rank_df2 = _ensure_rs_col
 
                 # build event-only Record
                 rec = {}
@@ -3074,7 +3076,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    rank_df2 = _ensure_rs_col(rank_df2)
+                    rank_df2 = _ensure_rs_col
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -3122,7 +3124,7 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = _ensure_rs_col(rank_df2)
+                    rank_df2 = _ensure_rs_col
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
@@ -3165,14 +3167,15 @@ with tab_single:
 
                 # Header
                 hc = st.columns(COLS, gap='small')
-                hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
-                hc[1].markdown(_header_cell('Team', 0, 'center', 'team'), unsafe_allow_html=True)
-                hc[2].markdown(_header_cell('EPA', -18, 'center'), unsafe_allow_html=True)
-                hc[3].markdown(_header_cell('npOPR', 0, 'center'), unsafe_allow_html=True)
-                hc[4].markdown(_header_cell('Auto EPA', 0, 'center'), unsafe_allow_html=True)
-                hc[5].markdown(_header_cell('Teleop EPA', 0, 'center'), unsafe_allow_html=True)
-                hc[6].markdown(_header_cell('Endgame EPA', 36, 'center'), unsafe_allow_html=True)
-                hc[7].markdown(_header_cell('RS', 36, 'center'), unsafe_allow_html=True)
+
+                hc[0].markdown(_header_cell('RS', 36, 'center'), unsafe_allow_html=True)
+                hc[1].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
+                hc[2].markdown(_header_cell('Team', 0, 'center', 'team'), unsafe_allow_html=True)
+                hc[3].markdown(_header_cell('EPA', -18, 'center'), unsafe_allow_html=True)
+                hc[4].markdown(_header_cell('npOPR', 0, 'center'), unsafe_allow_html=True)
+                hc[5].markdown(_header_cell('Auto EPA', 0, 'center'), unsafe_allow_html=True)
+                hc[6].markdown(_header_cell('Teleop EPA', 0, 'center'), unsafe_allow_html=True)
+                hc[7].markdown(_header_cell('Endgame EPA', 36, 'center'), unsafe_allow_html=True)
                 hc[8].markdown(_header_cell('Record', 0, 'center'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
@@ -3273,6 +3276,8 @@ with tab_single:
                             return ""
 
 
+                    c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
+                                  unsafe_allow_html=True)
                     c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>",
                                   unsafe_allow_html=True)
                     c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>",
@@ -3283,9 +3288,7 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
-                                  unsafe_allow_html=True)
-                    c[8].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+                    c[7].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
 
 # === V10h: Interactive credentials fixer ===
