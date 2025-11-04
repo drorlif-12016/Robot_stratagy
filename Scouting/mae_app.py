@@ -16,7 +16,7 @@ import base64
 # ------------------------------
 st.set_page_config(page_title="MAE Scout App — Event Mode", layout="wide")
 
-API_BASE = "https://ftc-events.firstinspires.org/api/v2"
+API_BASE = "http://ftc-api.firstinspires.org/v2.0"
 CRED_FILENAME = "ftc_api_credentials.json"
 
 # ------------------------------
@@ -68,32 +68,32 @@ def api_get(endpoint: str, headers: Dict[str, str], params: Optional[Dict[str, A
 # FTC API Wrappers (Correct Paths)
 # ------------------------------
 def fetch_event_info(season: str, event_code: str, headers: Dict[str, str]):
-    return api_get(f"{season}/events/{event_code}", headers)
+    return api_get(f"{API_BASE}/{season}/events/{event_code}", headers)
 
 
 def fetch_event_teams(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{season}/events/{event_code}/teams", headers)
+    data = api_get(f"{API_BASE}/{season}/events/{event_code}/teams", headers)
     if isinstance(data, dict) and "teams" in data:
         return pd.json_normalize(data["teams"])
     return pd.DataFrame()
 
 
 def fetch_event_rankings(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{season}/events/{event_code}/rankings", headers)
+    data = api_get(f"{API_BASE}/{season}/events/{event_code}/rankings", headers)
     if isinstance(data, dict) and "rankings" in data:
         return pd.json_normalize(data["rankings"])
     return pd.DataFrame()
 
 
 def fetch_event_matches(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{season}/events/{event_code}/matches", headers)
+    data = api_get(f"{API_BASE}/{season}/events/{event_code}/matches", headers)
     if isinstance(data, dict) and "matches" in data:
         return pd.json_normalize(data["matches"])
     return pd.DataFrame()
 
 
 def fetch_event_awards(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{season}/events/{event_code}/awards", headers)
+    data = api_get(f"{API_BASE}/{season}/events/{event_code}/awards", headers)
     if isinstance(data, dict) and "awards" in data:
         return pd.json_normalize(data["awards"])
     return pd.DataFrame()
