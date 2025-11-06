@@ -1,6 +1,6 @@
-# mae_scout_app_STEP3bd_V11b_RS2025_final_EVENT_FIXED_v2.py
-# ✅ FINAL FIXED VERSION (no redirect issue)
-# Uses correct FTC Events API endpoint
+# mae_scout_app_STEP3bd_V11b_RS2025_final_EVENT_FIXED_v3.py
+# ✅ FINAL WORKING VERSION — no redirect, no 501
+# Uses the current FTC Events API (https://ftc-events.firstinspires.org/api/v2)
 # ---------------------------------------------------------------
 
 import streamlit as st
@@ -67,33 +67,33 @@ def api_get(endpoint: str, headers: Dict[str, str], params: Optional[Dict[str, A
 # ------------------------------
 # FTC API Wrappers (Correct Paths)
 # ------------------------------
-def fetch_event_info(season: str, event_code: str, headers: Dict[str, str]):
-    return api_get(f"{API_BASE}/{season}/events/{event_code}", headers)
+def fetch_event_info(season: str, eventCode: str, headers: Dict[str, str]):
+    return api_get(f"{season}/events", headers)
 
 
-def fetch_event_teams(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{API_BASE}/{season}/events/{event_code}/teams", headers)
+def fetch_event_teams(season: str, eventCode: str, headers: Dict[str, str]) -> pd.DataFrame:
+    data = api_get(f"{season}/teams", headers)
     if isinstance(data, dict) and "teams" in data:
         return pd.json_normalize(data["teams"])
     return pd.DataFrame()
 
 
-def fetch_event_rankings(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{API_BASE}/{season}/events/{event_code}/rankings", headers)
+def fetch_event_rankings(season: str, eventCode: str, headers: Dict[str, str]) -> pd.DataFrame:
+    data = api_get(f"{season}/rankings/{eventCode}", headers)
     if isinstance(data, dict) and "rankings" in data:
         return pd.json_normalize(data["rankings"])
     return pd.DataFrame()
 
 
-def fetch_event_matches(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{API_BASE}/{season}/events/{event_code}/matches", headers)
+def fetch_event_matches(season: str, eventCode: str, headers: Dict[str, str]) -> pd.DataFrame:
+    data = api_get(f"{season}/matches/{eventCode}", headers)
     if isinstance(data, dict) and "matches" in data:
         return pd.json_normalize(data["matches"])
     return pd.DataFrame()
 
 
-def fetch_event_awards(season: str, event_code: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{API_BASE}/{season}/events/{event_code}/awards", headers)
+def fetch_event_awards(season: str, eventCode: str, headers: Dict[str, str]) -> pd.DataFrame:
+    data = api_get(f"{season}/events/{eventCode}/awards", headers)
     if isinstance(data, dict) and "awards" in data:
         return pd.json_normalize(data["awards"])
     return pd.DataFrame()
@@ -139,7 +139,7 @@ def format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
 # Streamlit UI
 # ------------------------------
 def main():
-    st.title("🤖 MAE Scouting App — Event Mode (301 Redirect Fixed)")
+    st.title("🤖 MAE Scouting App — Event Mode (501 Fixed)")
 
     creds = load_credentials()
     headers = build_headers(creds["user"], creds["token"])
@@ -150,27 +150,27 @@ def main():
         season = st.selectbox("Select Season", ["2025", "2024", "2023", "custom"])
         if season == "custom":
             season = st.text_input("Enter Season", "2025")
-        event_code = st.text_input("Event Code (e.g. ISRQT, NYQ1)", "ISRQT")
+        eventCode = st.text_input("Event Code (e.g. ISRQT, NYQ1)", "ISRQT")
         fetch_button = st.button("Fetch Event Data")
 
     if not fetch_button:
         st.info("Enter event code and click **Fetch Event Data**.")
         return
 
-    st.info(f"Fetching data for **{event_code}** (Season {season})...")
+    st.info(f"Fetching data for **{eventCode}** (Season {season})...")
 
     # Fetch all data
-    event_info = fetch_event_info(season, event_code, headers)
+    event_info = fetch_event_info(season, eventCode, headers)
     if not event_info:
         st.error("No valid event info found (check event code or season).")
         return
 
-    teams_df = fetch_event_teams(season, event_code, headers)
-    ranks_df = fetch_event_rankings(season, event_code, headers)
-    matches_df = fetch_event_matches(season, event_code, headers)
-    awards_df = fetch_event_awards(season, event_code, headers)
+    teams_df = fetch_event_teams(season, eventCode, headers)
+    ranks_df = fetch_event_rankings(season, eventCode, headers)
+    matches_df = fetch_event_matches(season, eventCode, headers)
+    awards_df = fetch_event_awards(season, eventCode, headers)
 
-    st.success(f"✅ Data fetched successfully for {event_code}")
+    st.success(f"✅ Data fetched successfully for {eventCode}")
 
     # Layout
     col1, col2 = st.columns([1, 2])
@@ -202,7 +202,7 @@ def main():
             st.subheader("Awards")
             st.dataframe(awards_df, use_container_width=True)
 
-    st.caption("Built by Dror Lifshitz — FTC Events API v2 (Redirect Fixed)")
+    st.caption("Built by Dror Lifshitz — FTC Events API v2 (No 501)")
 
 
 if __name__ == "__main__":

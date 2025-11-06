@@ -6,7 +6,7 @@ import json
 # -------------------------------
 # CONFIGURATION
 # -------------------------------
-API_BASE = "http://ftc-api.firstinspires.org/v2.0"
+API_BASE = "https://ftc-api.firstinspires.org/v2.0"
 USER = "drorl"
 TOKEN = "6DB10CF7-BF8C-4415-BA0B-BE3786462A67"
 
