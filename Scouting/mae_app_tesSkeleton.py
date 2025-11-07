@@ -93,7 +93,7 @@ def fetch_event_matches(season: str, eventCode: str, headers: Dict[str, str]) ->
 
 
 def fetch_event_awards(season: str, eventCode: str, headers: Dict[str, str]) -> pd.DataFrame:
-    data = api_get(f"{season}/events/{eventCode}/awards", headers)
+    data = api_get(f"{season}/awards/{eventCode}", headers)
     if isinstance(data, dict) and "awards" in data:
         return pd.json_normalize(data["awards"])
     return pd.DataFrame()
