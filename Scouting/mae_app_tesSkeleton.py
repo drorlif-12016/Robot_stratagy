@@ -1,6 +1,6 @@
-# mae_scout_app_STEP3bd_V11b_RS2025_final_EVENT_FIXED_v3.py
-# ✅ FINAL WORKING VERSION — no redirect, no 501
-# Uses the current FTC Events API (https://ftc-events.firstinspires.org/api/v2)
+# mae_scout_app_STEP3bd_V11b_RS2025_final_EVENT_FIXED_v4.py
+# ✅ FINAL WORKING VERSION + Rank Analysis + extract_value()
+# API ENDPOINTS UNCHANGED
 # ---------------------------------------------------------------
 
 import streamlit as st
@@ -18,6 +18,7 @@ st.set_page_config(page_title="MAE Scout App — Event Mode", layout="wide")
 
 API_BASE = "http://ftc-api.firstinspires.org/v2.0"
 CRED_FILENAME = "ftc_api_credentials.json"
+
 
 # ------------------------------
 # Utilities
@@ -65,7 +66,7 @@ def api_get(endpoint: str, headers: Dict[str, str], params: Optional[Dict[str, A
 
 
 # ------------------------------
-# FTC API Wrappers (Correct Paths)
+# FTC API Wrappers (UNTOUCHED)
 # ------------------------------
 def fetch_event_info(season: str, eventCode: str, headers: Dict[str, str]):
     return api_get(f"{season}/events", headers)
@@ -136,10 +137,35 @@ def format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------
+# NEW — Ranking Extraction Helpers (EXTRACT_VALUE INCLUDED)
+# ------------------------------
+def get_rank_field(ranks_df: pd.DataFrame, team_number: int, field: str):
+    row = ranks_df.loc[ranks_df["teamNumber"] == team_number]
+    if row.empty or field not in row.columns:
+        return None
+    return row[field].iloc[0]
+
+
+def get_team_rank_info(ranks_df: pd.DataFrame, team_number: int):
+    row = ranks_df.loc[ranks_df["teamNumber"] == team_number]
+    if row.empty:
+        return None
+    return row.iloc[0].to_dict()
+
+
+# Your function integrated
+def extract_value(ranks_df, team_number, field):
+    row = ranks_df.loc[ranks_df["teamNumber"] == team_number]
+    if row.empty or field not in row.columns:
+        return None
+    return row[field].iloc[0]
+
+
+# ------------------------------
 # Streamlit UI
 # ------------------------------
 def main():
-    st.title("🤖 MAE Scouting App — Event Mode (501 Fixed)")
+    st.title("🤖 MAE Scouting App — Event Mode (Rank Analysis Added)")
 
     creds = load_credentials()
     headers = build_headers(creds["user"], creds["token"])
@@ -170,6 +196,12 @@ def main():
     matches_df = fetch_event_matches(season, eventCode, headers)
     awards_df = fetch_event_awards(season, eventCode, headers)
 
+    # Team selector list
+    if not ranks_df.empty and "teamNumber" in ranks_df.columns:
+        team_list = sorted(ranks_df["teamNumber"].unique())
+    else:
+        team_list = []
+
     st.success(f"✅ Data fetched successfully for {eventCode}")
 
     # Layout
@@ -183,26 +215,72 @@ def main():
         st.metric("Matches", len(matches_df))
         st.metric("Awards", len(awards_df))
 
+    # ------------------------------
+    # Tabs including Rank Analysis
+    # ------------------------------
     with col2:
-        tabs = st.tabs(["Teams", "Rankings", "Matches", "Awards"])
+        tabs = st.tabs(["Teams", "Rankings", "Rank Analysis", "Matches", "Awards"])
 
+        # Teams
         with tabs[0]:
             st.subheader("Teams")
             st.dataframe(format_teams_table(teams_df), use_container_width=True)
 
+        # Rankings
         with tabs[1]:
             st.subheader("Rankings")
             st.dataframe(format_rankings_table(ranks_df), use_container_width=True)
 
+        # Rank Analysis
         with tabs[2]:
+            st.subheader("🔍 Rank Analysis")
+
+            if ranks_df.empty:
+                st.info("No rankings available for this event.")
+            else:
+                selected_team = st.selectbox("Select team number", team_list)
+
+                if selected_team:
+                    info = get_team_rank_info(ranks_df, selected_team)
+
+                    rs_value = extract_value(ranks_df, selected_team, "sortOrder1")
+                    tbp_value = extract_value(ranks_df, selected_team, "sortOrder2")
+                    wins_value = extract_value(ranks_df, selected_team, "wins")
+                    losses_value = extract_value(ranks_df, selected_team, "losses")
+                    ties_value = extract_value(ranks_df, selected_team, "ties")
+                    played_value = extract_value(ranks_df, selected_team, "matchesPlayed")
+
+                    st.markdown(f"### Team {selected_team} — Ranking Breakdown")
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Rank", info.get("rank"))
+                    c2.metric("RS (sortOrder1)", rs_value)
+                    c3.metric("TBP (sortOrder2)", tbp_value)
+
+                    c4, c5, c6 = st.columns(3)
+                    c4.metric("Wins", wins_value)
+                    c5.metric("Losses", losses_value)
+                    c6.metric("Ties", ties_value)
+
+                    c7, c8, c9 = st.columns(3)
+                    c7.metric("Matches Played", played_value)
+                    c8.metric("DQ", info.get("dq"))
+                    c9.metric("SortOrder3", info.get("sortOrder3"))
+
+                    st.markdown("### Full Ranking Data")
+                    st.json(info)
+
+        # Matches
+        with tabs[3]:
             st.subheader("Matches")
             st.dataframe(matches_df, use_container_width=True)
 
-        with tabs[3]:
+        # Awards
+        with tabs[4]:
             st.subheader("Awards")
             st.dataframe(awards_df, use_container_width=True)
 
-    st.caption("Built by Dror Lifshitz — FTC Events API v2 (No 501)")
+    st.caption("Built by Dror Lifshitz — FTC Events API v2 (Rank Analysis Added)")
 
 
 if __name__ == "__main__":
