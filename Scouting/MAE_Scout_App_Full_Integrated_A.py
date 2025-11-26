@@ -3293,4 +3293,169 @@ with tab_single:
 
 # === V10h: Interactive credentials fixer ===
 
-# === integrated block placeholder ===
+
+
+# ============================================================
+# INTEGRATED TEST-STYLE API LAYER (Option A)
+# Replaces ONLY the low-level data fetch functions.
+# UI and all other logic remain untouched.
+# ============================================================
+
+import base64
+from pathlib import Path as _LocalPath
+from typing import Dict, Any, Optional
+
+API_BASE = "https://ftc-api.firstinspires.org/v2.0"
+CRED_FILENAME = "ftc_api_credentials.json"
+TIMEOUT = 25
+
+def load_credentials(cred_file: str = CRED_FILENAME) -> Dict[str, str]:
+    p = _LocalPath(__file__).resolve().parent / cred_file
+    if not p.exists():
+        p2 = _LocalPath.cwd() / cred_file
+        if p2.exists():
+            p = p2
+    if not p.exists():
+        for cand in ["ftc_api_credentials.json", "ftc_credentials.json", "FTC_credentials.json"]:
+            p3 = _LocalPath.cwd() / cand
+            if p3.exists():
+                p = p3
+                break
+    if not p.exists():
+        return {}
+    try:
+        import json
+        with open(p, "r", encoding="utf-8") as f:
+            js = json.load(f)
+    except Exception:
+        return {}
+    user = js.get("user") or js.get("username") or js.get("FTC_USER")
+    token = js.get("token") or js.get("authkey") or js.get("FTC_TOKEN") or js.get("password")
+    if not (user and token):
+        return {}
+    return {"user": str(user), "token": str(token)}
+
+try:
+    _cache = st.cache_data
+except Exception:
+    def _cache(*a, **k):
+        def wrap(f): return f
+        return wrap
+
+@_cache(show_spinner=False)
+def build_headers(user: str, token: str) -> Dict[str, str]:
+    auth = base64.b64encode(f"{user}:{token}".encode()).decode()
+    return {"Accept": "application/json", "Authorization": f"Basic {auth}"}
+
+def api_get(endpoint: str, headers: Dict[str, str], params: Optional[Dict[str, Any]] = None, timeout: int = TIMEOUT):
+    import requests
+    url = f"{API_BASE.rstrip('/')}/{endpoint.lstrip('/')}"
+    resp = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+    if 200 <= getattr(resp, "status_code", 0) < 300:
+        try:
+            return resp.json()
+        except Exception as e:
+            raise RuntimeError(f"Non-JSON response from {url}: {e}")
+    else:
+        raise RuntimeError(f"API returned {resp.status_code} for {url}: {resp.text[:300]}")
+
+def get_json_safe(path: str):
+    try:
+        creds = load_credentials()
+        headers = build_headers(creds["user"], creds["token"]) if creds else {}
+    except Exception as e:
+        return False, None, {"error": f"Credentials error: {e}"}, f"{API_BASE}{path}"
+
+    if path.startswith("/v2.0/"):
+        endpoint = path.split("/v2.0/")[1]
+    elif path.startswith("v2.0/"):
+        endpoint = path.split("v2.0/")[1]
+    else:
+        endpoint = path.lstrip("/")
+    url = f"{API_BASE.rstrip('/')}/{endpoint}"
+    try:
+        js = api_get(endpoint, headers)
+        return True, 200, js, url
+    except Exception as e:
+        return False, -1, {"error": str(e)}, url
+
+@_cache(show_spinner=False)
+def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    try:
+        if "{season}" in path:
+            endpoint = path.format(season=season).lstrip("/")
+            if endpoint.startswith("v2.0/"):
+                endpoint = endpoint.split("v2.0/")[1]
+        elif path.startswith("/v2.0/"):
+            endpoint = path.split("/v2.0/")[1]
+        else:
+            endpoint = f"{season}/{path.lstrip('/')}"
+        creds = load_credentials()
+        headers = build_headers(creds["user"], creds["token"]) if creds else {}
+        return api_get(endpoint, headers, params=params)
+    except Exception:
+        return {}
+
+def api_teams(season: int, code: str):
+    return get_json_safe(f"/v2.0/{season}/teams?eventCode={code}")
+
+def api_matches(season: int, code: str):
+    return get_json_safe(f"/v2.0/{season}/matches/{code}")
+
+def api_rankings(season: int, code: str):
+    return get_json_safe(f"/v2.0/{season}/rankings/{code}")
+
+@_cache(show_spinner=False)
+def fetch_event_info(season: str, eventCode: str, headers: Dict[str, str]):
+    return api_get(f"{season}/events", headers)
+
+@_cache(show_spinner=False)
+def fetch_event_teams(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/teams?eventCode={eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("teams") or js.get("Teams") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
+
+@_cache(show_spinner=False)
+def fetch_event_rankings(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/rankings/{eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("rankings") or js.get("Rankings") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
+
+@_cache(show_spinner=False)
+def fetch_event_matches(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/matches/{eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("matches") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
+
+@_cache(show_spinner=False)
+def fetch_event_awards(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/awards/{eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("awards") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
+
+try:
+    _creds = load_credentials()
+    FTC_USER = _creds.get("user")
+    FTC_TOKEN = _creds.get("token")
+    GLOBAL_HEADERS = build_headers(FTC_USER, FTC_TOKEN) if FTC_USER and FTC_TOKEN else {}
+except Exception:
+    FTC_USER = None
+    FTC_TOKEN = None
+    GLOBAL_HEADERS = {}
+# ============================================================

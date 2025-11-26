@@ -15,6 +15,7 @@ import datetime as _dt
 import math
 import re
 
+from Scouting.MAE_Scout_App_Full_Integrated_A import _ftc_api_diagnostics
 
 
 def _coerce_season(season):
@@ -57,213 +58,170 @@ def has_creds():
     except Exception:
         return False
 
-def _ftc_api_diagnostics(season: int):
-    """Quick diagnostic call to FTC API for events endpoint."""
+# ============================================================
+# INTEGRATED TEST-STYLE API LAYER (Option A)
+# Replaces ONLY the low-level data fetch functions.
+# UI and all other logic remain untouched.
+# ============================================================
+
+import base64
+from pathlib import Path as _LocalPath
+from typing import Dict, Any, Optional
+
+API_BASE = "https://ftc-api.firstinspires.org/v2.0"
+CRED_FILENAME = "ftc_api_credentials.json"
+TIMEOUT = 25
+
+def load_credentials(cred_file: str = CRED_FILENAME) -> Dict[str, str]:
+    p = _LocalPath(__file__).resolve().parent / cred_file
+    if not p.exists():
+        p2 = _LocalPath.cwd() / cred_file
+        if p2.exists():
+            p = p2
+    if not p.exists():
+        for cand in ["ftc_api_credentials.json", "ftc_credentials.json", "FTC_credentials.json"]:
+            p3 = _LocalPath.cwd() / cand
+            if p3.exists():
+                p = p3
+                break
+    if not p.exists():
+        return {}
     try:
-        import requests, os
-        season = _coerce_season(season) if "_coerce_season" in globals() else season
-        url = f"https://ftc-api.firstinspires.org/v2.0/{season}/events"
-        u = globals().get("FTC_USER") or os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
-        k = globals().get("FTC_TOKEN") or os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY")
-        auth = (u, k) if (u and k) else None
-        r = requests.get(url, auth=auth, timeout=20)
-        sample = r.text[:600] if isinstance(r.text, str) else str(r.text)[:600]
-        return {"ok": (200 <= r.status_code < 300), "status": r.status_code, "url": r.url, "sample": sample}
-    except Exception as e:
-        return {"ok": False, "status": None, "url": None, "sample": f"Exception: {e}"}
+        import json
+        with open(p, "r", encoding="utf-8") as f:
+            js = json.load(f)
+    except Exception:
+        return {}
+    user = js.get("user") or js.get("username") or js.get("FTC_USER")
+    token = js.get("token") or js.get("authkey") or js.get("FTC_TOKEN") or js.get("password")
+    if not (user and token):
+        return {}
+    return {"user": str(user), "token": str(token)}
 
-# --- HTTP Delta Cache (per endpoint+params) ---
-from pathlib import Path as _Path
-import json as _json, hashlib as _hashlib, os as _os, time as _time
-
-_FTC_HTTP_DIR = _Path("./.ftc_cache/http")
-_FTC_HTTP_DIR.mkdir(parents=True, exist_ok=True)
-_FTC_META = _Path("./.ftc_cache/meta.json")
 try:
-    _META = _json.loads(_FTC_META.read_text(encoding="utf-8"))
+    _cache = st.cache_data
 except Exception:
-    _META = {}
+    def _cache(*a, **k):
+        def wrap(f): return f
+        return wrap
 
+@_cache(show_spinner=False)
+def build_headers(user: str, token: str) -> Dict[str, str]:
+    auth = base64.b64encode(f"{user}:{token}".encode()).decode()
+    return {"Accept": "application/json", "Authorization": f"Basic {auth}"}
 
-def _key_for(path, params):
-    s = path + "|" + "&".join(f"{k}={params[k]}" for k in sorted(params.keys())) if params else path
-    return _hashlib.sha1(s.encode("utf-8")).hexdigest()
-
-
-def _read_body(key):
-    p = _FTC_HTTP_DIR / f"{key}.json"
-    if p.exists():
+def api_get(endpoint: str, headers: Dict[str, str], params: Optional[Dict[str, Any]] = None, timeout: int = TIMEOUT):
+    import requests
+    url = f"{API_BASE.rstrip('/')}/{endpoint.lstrip('/')}"
+    resp = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+    if 200 <= getattr(resp, "status_code", 0) < 300:
         try:
-            return _json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            return None
-    return None
+            return resp.json()
+        except Exception as e:
+            raise RuntimeError(f"Non-JSON response from {url}: {e}")
+    else:
+        raise RuntimeError(f"API returned {resp.status_code} for {url}: {resp.text[:300]}")
 
+def get_json_safe(path: str):
+    try:
+        creds = load_credentials()
+        headers = build_headers(creds["user"], creds["token"]) if creds else {}
+    except Exception as e:
+        return False, None, {"error": f"Credentials error: {e}"}, f"{API_BASE}{path}"
 
-def _write_body(key, body):
-    p = _FTC_HTTP_DIR / f"{key}.json"
-    p.write_text(_json.dumps(body), encoding="utf-8")
+    if path.startswith("/v2.0/"):
+        endpoint = path.split("/v2.0/")[1]
+    elif path.startswith("v2.0/"):
+        endpoint = path.split("v2.0/")[1]
+    else:
+        endpoint = path.lstrip("/")
+    url = f"{API_BASE.rstrip('/')}/{endpoint}"
+    try:
+        js = api_get(endpoint, headers)
+        return True, 200, js, url
+    except Exception as e:
+        return False, -1, {"error": str(e)}, url
 
+@_cache(show_spinner=False)
+def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    try:
+        if "{season}" in path:
+            endpoint = path.format(season=season).lstrip("/")
+            if endpoint.startswith("v2.0/"):
+                endpoint = endpoint.split("v2.0/")[1]
+        elif path.startswith("/v2.0/"):
+            endpoint = path.split("/v2.0/")[1]
+        else:
+            endpoint = f"{season}/{path.lstrip('/')}"
+        creds = load_credentials()
+        headers = build_headers(creds["user"], creds["token"]) if creds else {}
+        return api_get(endpoint, headers, params=params)
+    except Exception:
+        return {}
 
-def _save_meta():
-    _FTC_META.parent.mkdir(parents=True, exist_ok=True)
-    _FTC_META.write_text(_json.dumps(_META, indent=2), encoding="utf-8")
+def api_teams(season: int, code: str):
+    return get_json_safe(f"/v2.0/{season}/teams?eventCode={code}")
 
+def api_matches(season: int, code: str):
+    return get_json_safe(f"/v2.0/{season}/matches/{code}")
 
+def api_rankings(season: int, code: str):
+    return get_json_safe(f"/v2.0/{season}/rankings/{code}")
 
+@_cache(show_spinner=False)
+def fetch_event_info(season: str, eventCode: str, headers: Dict[str, str]):
+    return api_get(f"{season}/events", headers)
 
+@_cache(show_spinner=False)
+def fetch_event_teams(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/teams?eventCode={eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("teams") or js.get("Teams") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
 
+@_cache(show_spinner=False)
+def fetch_event_rankings(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/rankings/{eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("rankings") or js.get("Rankings") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
 
+@_cache(show_spinner=False)
+def fetch_event_matches(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/matches/{eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("matches") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
 
-def load_ftc_credentials():
+@_cache(show_spinner=False)
+def fetch_event_awards(season: str, eventCode: str, headers: Dict[str, str]):
+    import pandas as pd
+    js = api_get(f"{season}/awards/{eventCode}", headers)
+    if isinstance(js, dict):
+        data = js.get("awards") or js.get("items") or js.get("data")
+        if isinstance(data, list):
+            return pd.json_normalize(data)
+    return pd.DataFrame()
 
-#TODO: change the pathes if the API dose not recognize the path
-
-    FIXED_PATH   = r"/Users/mishmash/Desktop/coading/Robot_stratagy/Scouting"
-    ROAMING_PATH = r"C:\Users\RoboMentor\AppData\Roaming\mae_scout"
-
-    def _try_read(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            user  = data.get("username") or data.get("user")
-            token = data.get("token")    or data.get("password")
-            if user and token:
-                return user, token, path
-        except Exception:
-            pass
-        return None, None, None
-
-    def _sha1(path):
-        try:
-            h = hashlib.sha1()
-            with open(path, "rb") as f:
-                h.update(f.read())
-            return h.hexdigest()[:12]
-        except Exception:
-            return None
-
-    # אסוף מועמדים (לזיהוי כפילויות)
-    candidates = []
-    def _add_candidates(base):
-        for pat in ["ftc_credentials.json", "FTC_credentials.json", "*.JASON"]:
-            for f in glob.glob(os.path.join(base, pat)):
-                if os.path.isfile(f):
-                    candidates.append(os.path.abspath(f))
-
-    _add_candidates(FIXED_PATH)
-    _add_candidates(".")
-    _add_candidates(ROAMING_PATH)
-
-    # 1) חיפוש בנתיב הקבוע
-    for f in glob.glob(os.path.join(FIXED_PATH, "ftc_credentials.json")) + \
-             glob.glob(os.path.join(FIXED_PATH, "FTC_credentials.json")) + \
-             glob.glob(os.path.join(FIXED_PATH, "*.JASON")):
-        u, t, p = _try_read(f)
-        if u and t:
-            _report_credentials_source(p, candidates)
-            return u, t
-
-    # 2) חיפוש בתיקייה הנוכחית
-    for f in glob.glob("ftc_credentials.json") + glob.glob("FTC_credentials.json") + glob.glob("*.JASON"):
-        u, t, p = _try_read(f)
-        if u and t:
-            _report_credentials_source(os.path.abspath(p), candidates)
-            return u, t
-
-
-    # 3) משתני סביבה
-    u = os.getenv("FTC_API_USER")
-    t = os.getenv("FTC_API_TOKEN")
-    if u and t:
-        st.info("🔑 Credentials loaded from environment variables (FTC_API_USER / FTC_API_TOKEN).")
-        if candidates:
-            st.warning("זוהו גם קובצי אישורים בתיקיות, אך נטען מה-ENV. מומלץ לאחד לנתיב קבוע.")
-        return u, t
-
-    # 4) בחירת קובץ / העלאה (פופ-אפ)
-    st.warning("⚠️ לא נמצאו אישורים. ניתן לבחור/להעלות קובץ JSON ונשמור אותו בנתיב הקבוע.")
-    open_picker = st.button("📂 בחר/העלה קובץ Credentials")
-    if open_picker:
-        uploaded = st.file_uploader("בחר את קובץ ה-FTC credentials", type=["json","JASON","txt"], accept_multiple_files=False)
-        if uploaded is not None:
-            try:
-                data  = json.loads(uploaded.getvalue().decode("utf-8", errors="ignore"))
-                user  = data.get("username") or data.get("user")
-                token = data.get("token")    or data.get("password")
-                if not (user and token):
-                    st.error("❌ הקובץ חסר שדות username/token.")
-                    st.stop()
-                os.makedirs(FIXED_PATH, exist_ok=True)
-                out_path = os.path.join(FIXED_PATH, "ftc_credentials.json")
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump({"username": user, "token": token}, f, ensure_ascii=False, indent=2)
-                st.success(f"✅ נשמר בהצלחה: {out_path}")
-                _report_credentials_source(out_path, candidates + [out_path])
-                return user, token
-            except Exception as e:
-                st.error(f"שגיאה בקריאת/שמירת הקובץ: {e}")
-                st.stop()
-
-    st.error("""
-    ❌ לא נמצאו ולא הועלו אישורים ל-FTC API.
-    אפשר לשמור מראש קובץ:
-    C:\\Users\\RoboMentor\\Robot_stratagy\\Scouting\\ftc_credentials.json
-    בפורמט:
-    {
-      "username": "your_username",
-      "token": "your_api_token"
-    }
-    או להגדיר משתני סביבה:
-      FTC_API_USER   ו-  FTC_API_TOKEN
-    """)
-    st.stop()
-
-
-def _report_credentials_source(used_path, all_candidates):
-    """מציג מאיזה קובץ נטענו האישורים ומתריע על כפילויות עם תוכן שונה."""
-    used_path = os.path.abspath(used_path)
-    st.info(f"🔑 Credentials loaded from: `{used_path}`")
-
-    def _sha1(p):
-        try:
-            h = hashlib.sha1()
-            with open(p, "rb") as f:
-                h.update(f.read())
-            return h.hexdigest()[:12]
-        except Exception:
-            return None
-
-    others = sorted(set(os.path.abspath(p) for p in all_candidates if os.path.abspath(p) != used_path))
-    if not others:
-        return
-
-    # השוואת hash כדי לזהות תוכן שונה
-    def _hash(p):
-        try:
-            h = hashlib.sha1()
-            with open(p, "rb") as f:
-                h.update(f.read())
-            return h.hexdigest()[:12]
-        except Exception:
-            return None
-
-    used_hash = _hash(used_path)
-    conflicts = []
-    for p in others:
-        h = _hash(p)
-        if h and used_hash and h != used_hash:
-            conflicts.append((p, h))
-
-    if conflicts:
-        st.warning("⚠️ נמצאו קובצי אישורים נוספים עם תוכן שונה:")
-        for p, h in conflicts:
-            st.write(f"- `{p}` (sha1:{h})")
-        st.caption("מומלץ להשאיר קובץ אחד בלבד בנתיב הקבוע ולאחד גרסאות.")
-
-
-# הפוך את האישורים לגלובליים לשאר האפליקציה
-FTC_USER, FTC_TOKEN = load_ftc_credentials()
+try:
+    _creds = load_credentials()
+    FTC_USER = _creds.get("user")
+    FTC_TOKEN = _creds.get("token")
+    GLOBAL_HEADERS = build_headers(FTC_USER, FTC_TOKEN) if FTC_USER and FTC_TOKEN else {}
+except Exception:
+    FTC_USER = None
+    FTC_TOKEN = None
+    GLOBAL_HEADERS = {}
+# ============================================================
 
 
 def dedupe_teams_master(teams_master: "pd.DataFrame", ev_view: "pd.DataFrame") -> "pd.DataFrame":
@@ -3292,3 +3250,6 @@ with tab_single:
                         unsafe_allow_html=True)
 
 # === V10h: Interactive credentials fixer ===
+
+
+
