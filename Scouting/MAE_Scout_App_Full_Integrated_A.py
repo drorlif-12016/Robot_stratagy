@@ -868,96 +868,83 @@ def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> 
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_rankings_df(season: int, event_code: str):
     """
-    Returns rankings with RS (Ranking Score). If API lacks explicit RS,
-    compute RS = total RP / qualification matches played.
+    Returns rankings with RS (Ranking Score) taken EXCLUSIVELY from sortOrder1.
+    No fallback RP/matches calculation.
     Columns: team, rank, RS, RP_total, qualMatches.
     """
+
+    # Handle season formatting
     season = _coerce_season(season) if "_coerce_season" in globals() else season
+
+    # Query FTC API
     data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
-    rows = []
+
     ranking_list = []
     try:
-        ranking_list = data.get("Rankings") or data.get("rankings") or data.get("items") or []
+        ranking_list = (
+            data.get("Rankings")
+            or data.get("rankings")
+            or data.get("items")
+            or []
+        )
     except Exception:
         ranking_list = []
 
     def _gi(obj, *keys):
+        """Get first existing key."""
         for k in keys:
             if k in obj and obj[k] is not None:
                 return obj[k]
         return None
 
-    for r in ranking_list:
+    rows = []
 
+    for r in ranking_list:
+        # Extract fields safely
         team     = _gi(r, "teamNumber", "team", "teamId", "number")
         rank     = _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
         rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
         matches  = _gi(r, "qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
 
-        try: team = int(team)
-        except Exception: team = None
-        try: rank = int(rank) if rank is not None else None
-        except Exception: rank = None
-        try: rs = float(rs) if rs is not None else None
-        except Exception: rs = None
-        try: rp_total = float(rp_total) if rp_total is not None else None
-        except Exception: rp_total = None
-        try: matches = int(matches) if matches is not None else None
-        except Exception: matches = None
+        # NEW: RS MUST come from sortOrder1 ONLY
+        so1 = _gi(r, "sortOrder1", "SortOrder1")
+        try:
+            rs = float(so1) if so1 is not None else None
+        except:
+            rs = None
 
-        if rs is None and rp_total is not None and matches and matches > 0:
-            rs = rp_total / matches
+        # Coerce types safely
+        try:    team = int(team)
+        except: team = None
 
+        try:    rank = int(rank) if rank is not None else None
+        except: rank = None
+
+        try:    rp_total = float(rp_total) if rp_total is not None else None
+        except: rp_total = None
+
+        try:    matches = int(matches) if matches is not None else None
+        except: matches = None
+
+        # Build row
         if team is not None:
             row = {"team": team}
             if rank is not None:     row["rank"] = rank
-            if rs is not None:       row["RS"] = round(float(rs), 3)
-            if rp_total is not None: row["RP_total"] = float(rp_total)
-            if matches is not None:  row["qualMatches"] = int(matches)
+            if rs is not None:       row["RS"] = rs
+            if rp_total is not None: row["RP_total"] = rp_total
+            if matches is not None:  row["qualMatches"] = matches
             rows.append(row)
 
     import pandas as pd
     df = pd.DataFrame(rows)
-    for col in ("rank","RS","RP_total","qualMatches"):
+
+    # Ensure presence of columns
+    for col in ("rank", "RS", "RP_total", "qualMatches"):
         if col not in df.columns:
             df[col] = None
-    return df[["team","rank","RS","RP_total","qualMatches"]].copy() if not df.empty else df
 
-@st.cache_data(show_spinner=False, ttl=300)
-def ftc_alliances(season: int, event_code: str):
-    data = ftc_get(season, f"/v2.0/{season}/alliances/{event_code}")
-    out = []
-    try:
-        arr = data.get("Alliances") or data.get("alliances") or []
-        for idx, a in enumerate(arr, start=1):
-            num = a.get("number") or a.get("allianceNumber") or idx
-            teams = []
-            cap = a.get("captain") or a.get("Captain") or None
-            if cap:
-                tn = cap.get("teamNumber") or cap.get("team") or cap.get("teamId")
-                if tn:
-                    try:
-                        teams.append(int(tn))
-                    except:
-                        pass
-            picks = a.get("round") or a.get("picks") or a.get("teams") or []
+    return df[["team", "rank", "RS", "RP_total", "qualMatches"]].copy() if not df.empty else df
 
-            def _extract(t):
-                if isinstance(t, dict):
-                    return t.get("teamNumber") or t.get("team") or t.get("teamId")
-                return t
-
-            for t in picks:
-                tn = _extract(t)
-                if tn:
-                    try:
-                        teams.append(int(tn))
-                    except:
-                        pass
-            out.append({"number": int(num), "teams": teams})
-    except Exception:
-        pass
-    return out
 
 
 @st.cache_data(show_spinner=False, ttl=300)
