@@ -2990,7 +2990,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    rank_df2 = _ensure_rs_col(rank_df2)
+
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -3038,7 +3038,6 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = _ensure_rs_col(rank_df2)
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
