@@ -882,6 +882,8 @@ def ftc_rankings_df(season: int, event_code: str):
             data.get("Rankings")
             or data.get("rankings")
             or data.get("items")
+            or data.get("sortOrder1")
+            or data.get("RS")
             or []
         )
     except Exception:
@@ -897,39 +899,42 @@ def ftc_rankings_df(season: int, event_code: str):
     rows = []
 
     for r in ranking_list:
-        # Extract fields safely
-        team     = _gi(r, "teamNumber", "team", "teamId", "number")
-        rank     = _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
-        rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "advancementPoints", "adv_points", "totalPoints", "total_points")
-        matches  = _gi(r, "matchesPlayed", "played", "qualMatches", "numberOfMatches", "count")
-
-        # NEW: RS MUST come from sortOrder1 ONLY, as requested (even if column is still named RS)
-
-    def get_sortorder1(season: int, eventCode: str):
-        url = f"http://ftc-api.firstinspires.org/v2.0/{season}/rankings/{eventCode}"
-        r = requests.get(url, auth=(FTC_USER, FTC_TOKEN))
-
-        if r.status_code != 200:
-            st.error(f"API Error {r.status_code}")
-            return None
-
-        data = r.json()
+        _gi(r, "teamNumber", "team", "teamId", "number")
+        _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
+        _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "advancementPoints", "adv_points", "totalPoints","total_points")
+        _gi(r, "matchesPlayed", "played", "qualMatches", "numberOfMatches", "count")
+        _gi(r, "sortOrder1", "SortOrder1", "RS")
+        import pandas as pd
+        data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
         rankings = data.get("Rankings") or data.get("rankings") or []
 
-        rows = []
         for r in rankings:
-            rows.append({
+            try:
+                team = int(r.get("teamNumber"))
+            except Exception:
+                continue
 
-                "SortOrder1": r.get("sortOrder1") or r.get("SortOrder1")
+            rows.append({
+                "team": team,
+                "rank": r.get("rank"),
+                "RS": r.get("sortOrder1"),
+                "RP_total": r.get("rankingPoints"),
+                "qualMatches": r.get("matchesPlayed"),
             })
 
-        return rows
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df["RS"] = pd.to_numeric(df["RS"], errors="coerce")
+            df["rank"] = pd.to_numeric(df["rank"], errors="coerce")
+        return df
+
+
 
     import pandas as pd
     df = pd.DataFrame(rows)
 
     # Ensure presence of required columns, including RS
-    for col in ("rank", "RS", "RP_total", "qualMatches"): # Use "RS" in tuple
+    for col in ("rank", "sortOrder1", "RP_total", "qualMatches"): # Use "RS" in tuple
         if col not in df.columns:
             df[col] = None
 
@@ -1802,7 +1807,7 @@ def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFram
             })
 
     final_df = pd.DataFrame({"team": list(EPA.keys())})
-    final_df["rs"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
+    final_df["sortOrder1"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA_Auto"] = pd.to_numeric(final_df["team"].map(EPA_A), errors="coerce")
     final_df["EPA_Endgame"] = pd.to_numeric(final_df["team"].map(EPA_E), errors="coerce")
@@ -2109,7 +2114,7 @@ def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master:
         lambda r: f"{_int0(r['W'])}-{_int0(r['L'])}" + (f"-{_int0(r.get('T', 0))}" if _int0(r.get('T', 0)) > 0 else ""),
         axis=1)
     df = df.rename(columns={"OPR_last_family": "OPR"})
-    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "RECORD"]
+    show = ["team", "team_name", "sortOrder1","country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "RECORD"]
     df = df.drop_duplicates(subset=["team"], keep="first")
     return df[show].sort_values(by=["EPA", "OPR"], ascending=[False, False], na_position="last")
 
@@ -2594,7 +2599,7 @@ with tab_rank:
 
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-        hc[2].markdown(_header_cell('RS', 0, 'center' ), unsafe_allow_html=True)
+        hc[2].markdown(_header_cell('sortOrder1', 0, 'center' ), unsafe_allow_html=True)
         hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
         hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
         hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
@@ -2630,7 +2635,7 @@ with tab_rank:
                 except Exception:
                     return ""
 
-            c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>", unsafe_allow_html=True)
+            c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>", unsafe_allow_html=True)
             c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
             c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
             c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
@@ -2851,35 +2856,19 @@ def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override
     return df_out
 
 
-# ---------- END FIX ----------
-def _ensure_rs_col(season: int, eventCode: str):
-    """
-    Ensure a numeric 'RS' column exists in df.
+def get_sortorder1(df_in, season=None, df_out=None):
+    import pandas as pd
 
-    Behavior:
-    - If df is None/empty or not a DataFrame -> return as-is.
-    - If an 'RS' column already exists -> coerce to numeric and return.
-    - Try to compute RS = total_ranking_points / matches_played using many common column name variants.
-    - If an average/RS-like column exists (avg_rp, ranking_score), use that.
-    - Otherwise create an RS column with NA values (keeps DataFrame shape).
-    """
-    url = f"http://ftc-api.firstinspires.org/v2.0/{season}/rankings/{eventCode}"
-    r = requests.get(url, auth=(FTC_USER, FTC_TOKEN))
+    if df_out is None:
+        df_out = df_in
 
-    if r.status_code != 200:
-        st.error(f"API Error {r.status_code}")
-        return None
+    if df_out is None or getattr(df_out, "empty", True):
+        return pd.DataFrame()
 
-    data = r.json()
-    rankings = data.get("Rankings") or data.get("rankings") or []
+    ...
+    return df_out
 
-    rows = []
-    for r in rankings:
-        rows.append({
-            "SortOrder1": r.get("sortOrder1") or r.get("SortOrder1")
-        })
 
-    return rows
 
 with tab_single:
     # --- Single-event Ranking (uses EXACT same layout as Rankings tab) ---
@@ -2954,11 +2943,11 @@ with tab_single:
                     rank_df2 = pd.DataFrame()
 
             if rank_df2.empty:
-                rank_df2 =  _ensure_rs_col
+                rank_df2 = get_sortorder1(rank_df2, str(season))
             else:
                 # keep only teams in this event
                 if teams:
-                    rank_df2 = _ensure_rs_col
+                    rank_df2 = get_sortorder1(rank_df2, str(season), rank_df2)
 
                 # build event-only Record
                 rec = {}
@@ -2997,7 +2986,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    rank_df2 = _ensure_rs_col
+                    rank_df2 = get_sortorder1(rank_df2, str(season))
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -3045,12 +3034,13 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = _ensure_rs_col
+                    rank_df2 = get_sortorder1(rank_df2, str(season))
+
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
-                        _token = st.session_state.get("ftc_token_input") or st.secrets.get("ftc_api_token",
-                                                                                           "90A41204-F536-41DE-B35D-8A128719ED23")
+                        _token = st.session_state.get("ftc_token_input") or st.secrets.get("ftc_api_token","90A41204-F536-41DE-B35D-8A128719ED23")
+
                     except Exception:
                         _user, _token = "aviad", "90A41204-F536-41DE-B35D-8A128719ED23"
                     # ---------- FIX: Replaced 'selected_event_code' with 'ev_code' ----------
@@ -3214,3 +3204,36 @@ with tab_single:
 
 # === V10h: Interactive credentials fixer ===
 # ============================================================
+
+
+
+# ===================== PATCH: FIX RS / sortOrder1 =====================
+# def _ensure_rs_col(df, season: int, event_code: str):
+#     """#     Ensure 'RS' column exists and is sourced ONLY from FTC Rankings sortOrder1.
+#     Safe: always returns a DataFrame and never overwrites valid RS values.
+#     """
+#     import pandas as pd
+#     if df is None or not isinstance(df, pd.DataFrame):
+#         return pd.DataFrame() if df is None else df
+#
+#     # Fetch RS from FTC API via cached helper
+#     try:
+#         rsdf = ftc_rankings_df(int(season), str(event_code))
+#     except Exception:
+#         rsdf = None
+#
+#     if isinstance(rsdf, pd.DataFrame) and not rsdf.empty and 'team' in rsdf.columns and 'RS' in rsdf.columns:
+#         rs_map = rsdf.set_index('team')['RS']
+#         if 'team' in df.columns:
+#             # Only fill missing/NaN RS
+#             if 'RS' not in df.columns:
+#                 df['RS'] = None
+#             mask = df['RS'].isna()
+#             df.loc[mask, 'RS'] = pd.to_numeric(df.loc[mask, 'team'], errors='coerce').map(rs_map)
+#
+#     # Coerce to numeric for display
+#     if 'RS' in df.columns:
+#         df['RS'] = pd.to_numeric(df['RS'], errors='coerce')
+#
+#     return df
+# =================== END PATCH ===================
