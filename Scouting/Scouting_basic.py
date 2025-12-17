@@ -1,3 +1,5 @@
+import datetime as _dt
+import math
 
 # MAE Scouting – patch13n19d
 # Change from 13n19c: **Family unification rule**
@@ -5,16 +7,10 @@
 #   This unifies Israeli Championship divisions (e.g., ILCMPHDRO / ILCMPSOLR / ILCMPARC / ILCMPPCF) with ILCMP finals.
 # Everything else identical to 13n19c.
 
-import streamlit as st ,os ,hashlib
-import os, json, glob, streamlit as st, hashlib
+import streamlit as st
 import typing as t
-import numpy as np
-import pandas as pd
-import requests
-import datetime as _dt
-import math
-import re
 
+from datetime import datetime
 
 
 def _coerce_season(season):
@@ -25,6 +21,7 @@ def _coerce_season(season):
         y = int(season)
     except Exception:
         try:
+            import streamlit as st
             from datetime import datetime as _dtnow
             y = int(st.session_state.get("season") or st.session_state.get("Season") or _dtnow.now().year)
         except Exception:
@@ -40,7 +37,7 @@ def _coerce_season(season):
     return y
 def _set_creds_state(u, t, meta=None):
     try:
-
+        import streamlit as st
         st.session_state['creds_ok'] = bool(u and t)
         st.session_state['creds_source'] = (meta or {}).get('source') if isinstance(meta, dict) else None
         st.session_state['creds_path'] = (meta or {}).get('path') if isinstance(meta, dict) else None
@@ -50,7 +47,7 @@ def _set_creds_state(u, t, meta=None):
 
 def has_creds():
     try:
-
+        import streamlit as st, os
         if st.session_state.get('creds_ok'):
             return True
         return bool(os.getenv('FTC_API_USER') and os.getenv('FTC_API_TOKEN'))
@@ -110,16 +107,21 @@ def _save_meta():
     _FTC_META.write_text(_json.dumps(_META, indent=2), encoding="utf-8")
 
 
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
+import re
 
 
 
 
-
+import os, json, glob
 def load_ftc_credentials():
 
-#TODO: change the pathes if the API dose not recognize the path
+    import os, json, glob, streamlit as st, hashlib
 
-    FIXED_PATH   = r"/Users/mishmash/Desktop/coading/Robot_stratagy/Scouting"
+    FIXED_PATH   = r"C:\Users\RoboMentor\Robot_stratagy\Scouting"
     ROAMING_PATH = r"C:\Users\RoboMentor\AppData\Roaming\mae_scout"
 
     def _try_read(path):
@@ -171,7 +173,6 @@ def load_ftc_credentials():
             _report_credentials_source(os.path.abspath(p), candidates)
             return u, t
 
-
     # 3) משתני סביבה
     u = os.getenv("FTC_API_USER")
     t = os.getenv("FTC_API_TOKEN")
@@ -222,6 +223,7 @@ def load_ftc_credentials():
 
 def _report_credentials_source(used_path, all_candidates):
     """מציג מאיזה קובץ נטענו האישורים ומתריע על כפילויות עם תוכן שונה."""
+    import os, streamlit as st, hashlib
     used_path = os.path.abspath(used_path)
     st.info(f"🔑 Credentials loaded from: `{used_path}`")
 
@@ -539,6 +541,7 @@ def _coerce_season(season):
         return int(season)
     except Exception:
         try:
+            import streamlit as st
             s = st.session_state.get("season") or st.session_state.get("Season") or DEFAULT_SEASON
             return int(s)
         except Exception:
@@ -817,6 +820,7 @@ def _ftc_get_auth():
     except Exception:
         pass
     try:
+        import streamlit as st
         u = u or st.secrets.get("ftc_username", None)
         t = t or st.secrets.get("ftc_token", None)
         sec = st.secrets.get("ftc", {})
@@ -829,6 +833,7 @@ def _ftc_get_auth():
     u = u or os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
     t = t or os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY") or os.getenv("FTC_TOKEN")
     try:
+        import streamlit as st
         if (u is None or t is None) and st.session_state.get("ftc_auth_ui"):
             ui = st.session_state.get("ftc_auth_ui")
             u = u or ui.get("user")
@@ -868,83 +873,96 @@ def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> 
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_rankings_df(season: int, event_code: str):
     """
-    Returns rankings with RS (Ranking Score) taken EXCLUSIVELY from sortOrder1.
-    No fallback RP/matches calculation.
+    Returns rankings with RS (Ranking Score). If API lacks explicit RS,
+    compute RS = total RP / qualification matches played.
     Columns: team, rank, RS, RP_total, qualMatches.
     """
-
-    # Handle season formatting
     season = _coerce_season(season) if "_coerce_season" in globals() else season
-
-    # Query FTC API
     data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
-
+    rows = []
     ranking_list = []
     try:
-        ranking_list = (
-            data.get("Rankings")
-            or data.get("rankings")
-            or data.get("items")
-            or []
-        )
+        ranking_list = data.get("Rankings") or data.get("rankings") or data.get("items") or []
     except Exception:
         ranking_list = []
 
     def _gi(obj, *keys):
-        """Get first existing key."""
         for k in keys:
             if k in obj and obj[k] is not None:
                 return obj[k]
         return None
 
-    rows = []
-
     for r in ranking_list:
-        # Extract fields safely
         team     = _gi(r, "teamNumber", "team", "teamId", "number")
         rank     = _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
+        rs       = _gi(r, "rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
         rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
         matches  = _gi(r, "qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
 
-        # NEW: RS MUST come from sortOrder1 ONLY
-        so1 = _gi(r, "sortOrder1", "SortOrder1")
-        try:
-            rs = float(so1) if so1 is not None else None
-        except:
-            rs = None
+        try: team = int(team)
+        except Exception: team = None
+        try: rank = int(rank) if rank is not None else None
+        except Exception: rank = None
+        try: rs = float(rs) if rs is not None else None
+        except Exception: rs = None
+        try: rp_total = float(rp_total) if rp_total is not None else None
+        except Exception: rp_total = None
+        try: matches = int(matches) if matches is not None else None
+        except Exception: matches = None
 
-        # Coerce types safely
-        try:    team = int(team)
-        except: team = None
+        if rs is None and rp_total is not None and matches and matches > 0:
+            rs = rp_total / matches
 
-        try:    rank = int(rank) if rank is not None else None
-        except: rank = None
-
-        try:    rp_total = float(rp_total) if rp_total is not None else None
-        except: rp_total = None
-
-        try:    matches = int(matches) if matches is not None else None
-        except: matches = None
-
-        # Build row
         if team is not None:
             row = {"team": team}
             if rank is not None:     row["rank"] = rank
-            if rs is not None:       row["RS"] = rs
-            if rp_total is not None: row["RP_total"] = rp_total
-            if matches is not None:  row["qualMatches"] = matches
+            if rs is not None:       row["RS"] = round(float(rs), 3)
+            if rp_total is not None: row["RP_total"] = float(rp_total)
+            if matches is not None:  row["qualMatches"] = int(matches)
             rows.append(row)
 
     import pandas as pd
     df = pd.DataFrame(rows)
-
-    # Ensure presence of columns
-    for col in ("rank", "RS", "RP_total", "qualMatches"):
+    for col in ("rank","RS","RP_total","qualMatches"):
         if col not in df.columns:
             df[col] = None
+    return df[["team","rank","RS","RP_total","qualMatches"]].copy() if not df.empty else df
 
-    return df[["team", "rank", "RS", "RP_total", "qualMatches"]].copy() if not df.empty else df
+@st.cache_data(show_spinner=False, ttl=300)
+def ftc_alliances(season: int, event_code: str):
+    data = ftc_get(season, f"/v2.0/{season}/alliances/{event_code}")
+    out = []
+    try:
+        arr = data.get("Alliances") or data.get("alliances") or []
+        for idx, a in enumerate(arr, start=1):
+            num = a.get("number") or a.get("allianceNumber") or idx
+            teams = []
+            cap = a.get("captain") or a.get("Captain") or None
+            if cap:
+                tn = cap.get("teamNumber") or cap.get("team") or cap.get("teamId")
+                if tn:
+                    try:
+                        teams.append(int(tn))
+                    except:
+                        pass
+            picks = a.get("round") or a.get("picks") or a.get("teams") or []
 
+            def _extract(t):
+                if isinstance(t, dict):
+                    return t.get("teamNumber") or t.get("team") or t.get("teamId")
+                return t
+
+            for t in picks:
+                tn = _extract(t)
+                if tn:
+                    try:
+                        teams.append(int(tn))
+                    except:
+                        pass
+            out.append({"number": int(num), "teams": teams})
+    except Exception:
+        pass
+    return out
 
 
 @st.cache_data(show_spinner=False, ttl=300)
@@ -1230,7 +1248,7 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
     return summary, per_team_detail
 
 
-APP_TITLE = "MISHMASH Scouting platform - Version STEP3bd (V11b) (updated: 15.10.2025)"
+APP_TITLE = "MISHMASH Scouting platform - Version 13n21 (V10i) (updated: 07.09.2025)"
 BASE_URL = "https://ftc-api.firstinspires.org"
 TIMEOUT = 25
 TEAMS_PER_ALLIANCE = 2
@@ -1377,6 +1395,7 @@ def events_list(season: int) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
         try:
+            import streamlit as st
             total = 0 if not isinstance(items, list) else len(items)
             keys = list((items[0].keys())) if isinstance(items, list) and items else []
             st.warning(f"Failed to list events: empty events dataframe. Check credentials/network (server ok={ok}, items={total})")
@@ -1389,6 +1408,7 @@ def events_list(season: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["event_code","name","country","start","family"])
 
     try:
+        import streamlit as st
         country_filter = (st.session_state.get("country_filter") or st.session_state.get("Country") or "").strip().upper()
         if country_filter:
             df = df[df["country"] == country_filter].copy()
@@ -1811,7 +1831,6 @@ def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFram
             })
 
     final_df = pd.DataFrame({"team": list(EPA.keys())})
-    final_df["rs"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA_Auto"] = pd.to_numeric(final_df["team"].map(EPA_A), errors="coerce")
     final_df["EPA_Endgame"] = pd.to_numeric(final_df["team"].map(EPA_E), errors="coerce")
@@ -1894,7 +1913,6 @@ def rankings_for_event(season: int, code: str) -> pd.DataFrame:
         rows.append({"team": int(t), "rank": _get_int("rank", "Rank"),
                      "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T")})
     return pd.DataFrame(rows)
-
 
 
 @st.cache_data(ttl=1800, show_spinner=True)
@@ -2265,7 +2283,7 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
 
 
 # ---------- UI ----------
-
+st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.caption("Build: **V8** — single-event ranking-only, cached Adv tab")
 
 # ---- Manual refresh for cached computations ----
@@ -2302,7 +2320,7 @@ def ensure_ftc_creds_interactive(default_season=None):
     ftc_api_credentials.json and save it to %APPDATA%\mae_scout\ftc_api_credentials.json.
     """
     import os, json, pathlib
-
+    import streamlit as st
 
     status = None
     try:
@@ -2603,13 +2621,12 @@ with tab_rank:
 
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-        hc[2].markdown(_header_cell('RS', 0, 'center' ), unsafe_allow_html=True)
-        hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
-        hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
-        hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-        hc[8].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+        hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+        hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+        hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
+        hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
             c = st.columns(COLS, gap="small")
             t_id = getattr(row, "team", None)
@@ -2639,7 +2656,7 @@ with tab_rank:
                 except Exception:
                     return ""
 
-            c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>", unsafe_allow_html=True)
+
             c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
             c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
             c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
@@ -2861,90 +2878,6 @@ def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override
 
 
 # ---------- END FIX ----------
-def _ensure_rs_col(df):
-    """
-    Ensure a numeric 'RS' column exists in df.
-
-    Behavior:
-    - If df is None/empty or not a DataFrame -> return as-is.
-    - If an 'RS' column already exists -> coerce to numeric and return.
-    - Try to compute RS = total_ranking_points / matches_played using many common column name variants.
-    - If an average/RS-like column exists (avg_rp, ranking_score), use that.
-    - Otherwise create an RS column with NA values (keeps DataFrame shape).
-    """
-    import pandas as pd
-    import numpy as np
-
-
-    df_out = df.copy()
-
-    # build case-insensitive map of existing column names
-    col_lower = {c.lower(): c for c in df_out.columns}
-
-    # 1) If RS already present, coerce and return
-    if 'rs' in col_lower:
-        df_out[col_lower['rs']] = pd.to_numeric(df_out[col_lower['rs']], errors='coerce')
-        # unify name to 'RS' (uppercase) for downstream code expecting that name
-        if col_lower['rs'] != 'RS':
-            df_out = df_out.rename(columns={col_lower['rs']: 'RS'})
-        return df_out
-
-    # 2) Candidate names for total ranking points and for matches played
-    rp_candidates = [
-        'rankingpoints', 'ranking_points', 'rankingpoints_total', 'ranking_points_total',
-        'rp', 'total_rp', 'total_ranking_points', 'advancementpoints', 'adv_points', 'total_points'
-    ]
-    matches_candidates = [
-        'matches', 'matches_played', 'played', 'qualification_matches', 'qual_matches',
-        'qualification_matches_played', 'matchesplayed', 'num_matches', 'n_matches'
-    ]
-
-    def find_col(cands):
-        for c in cands:
-            if c in col_lower:
-                return col_lower[c]
-        return None
-
-    rp_col = find_col(rp_candidates)
-    matches_col = find_col(matches_candidates)
-
-    # 3) Compute RS if both total RP and matches columns are available
-    if rp_col and matches_col:
-        rp_ser = pd.to_numeric(df_out[rp_col], errors='coerce')
-        matches_ser = pd.to_numeric(df_out[matches_col], errors='coerce')
-        # avoid division by zero — set RS to NaN where matches <= 0 or NaN
-        safe_matches = matches_ser.replace({0: np.nan})
-        rs_series = rp_ser / safe_matches
-        df_out['RS'] = pd.to_numeric(rs_series, errors='coerce')
-        return df_out
-
-    # 4) If an average / precomputed RS-like column exists, use it
-    avg_candidates = [
-        'avg_rp', 'avg_ranking_points', 'ranking_points_avg', 'rp_avg',
-        'ranking_score', 'ranking_score_avg', 'avg_ranking_score'
-    ]
-    avg_col = find_col(avg_candidates)
-    if avg_col:
-        df_out['RS'] = pd.to_numeric(df_out[avg_col], errors='coerce')
-        return df_out
-
-    # 5) If the FTC API rankings DF was merged earlier it might contain e.g. 'RankingPoints' or 'Matches'
-    #    Try a more permissive lookup for any column containing 'rank' & 'point' or 'match'
-    if not any(k in col_lower for k in ['rp', 'ranking', 'rank']) or not any(k in col_lower for k in ['match', 'played', 'matches']):
-        # fallback heuristics
-        possible_rp = next((col for low, col in col_lower.items() if ('rank' in low and 'point' in low) or low == 'rp'), None)
-        possible_matches = next((col for low, col in col_lower.items() if 'match' in low or 'played' in low or 'n_matches' in low), None)
-        if possible_rp and possible_matches:
-            rp_ser = pd.to_numeric(df_out[possible_rp], errors='coerce')
-            matches_ser = pd.to_numeric(df_out[possible_matches], errors='coerce')
-            safe_matches = matches_ser.replace({0: np.nan})
-            df_out['RS'] = pd.to_numeric(rp_ser / safe_matches, errors='coerce')
-            return df_out
-
-    # 6) Last resort: create RS column filled with NaN so downstream code can rely on its existence
-    df_out['RS'] = pd.NA
-    return df_out
-
 
 
 with tab_single:
@@ -3019,12 +2952,6 @@ with tab_single:
                 except Exception:
                     rank_df2 = pd.DataFrame()
 
-            if rank_df2.empty:
-                rank_df2 =  _ensure_rs_col
-            else:
-                # keep only teams in this event
-                if teams:
-                    rank_df2 = _ensure_rs_col
 
                 # build event-only Record
                 rec = {}
@@ -3063,7 +2990,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    rank_df2 = _ensure_rs_col
+                    rank_df2 = _ensure_rs_col(rank_df2)
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -3111,7 +3038,7 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = _ensure_rs_col
+                    rank_df2 = _ensure_rs_col(rank_df2)
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
@@ -3154,16 +3081,14 @@ with tab_single:
 
                 # Header
                 hc = st.columns(COLS, gap='small')
-
-                hc[0].markdown(_header_cell('RS', 36, 'center'), unsafe_allow_html=True)
-                hc[1].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
-                hc[2].markdown(_header_cell('Team', 0, 'center', 'team'), unsafe_allow_html=True)
-                hc[3].markdown(_header_cell('EPA', -18, 'center'), unsafe_allow_html=True)
-                hc[4].markdown(_header_cell('npOPR', 0, 'center'), unsafe_allow_html=True)
-                hc[5].markdown(_header_cell('Auto EPA', 0, 'center'), unsafe_allow_html=True)
-                hc[6].markdown(_header_cell('Teleop EPA', 0, 'center'), unsafe_allow_html=True)
-                hc[7].markdown(_header_cell('Endgame EPA', 36, 'center'), unsafe_allow_html=True)
-                hc[8].markdown(_header_cell('Record', 0, 'center'), unsafe_allow_html=True)
+                hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
+                hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
+                hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+                hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+                hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+                hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+                hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
+                hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
                 for idx, row in enumerate(rank_df2.itertuples(index=False), start=1):
@@ -3263,8 +3188,6 @@ with tab_single:
                             return ""
 
 
-                    c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
-                                  unsafe_allow_html=True)
                     c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>",
                                   unsafe_allow_html=True)
                     c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>",
@@ -3275,174 +3198,6 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[7].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+                    c[7].markdown(
+                        f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
-
-# === V10h: Interactive credentials fixer ===
-
-
-
-# ============================================================
-# INTEGRATED TEST-STYLE API LAYER (Option A)
-# Replaces ONLY the low-level data fetch functions.
-# UI and all other logic remain untouched.
-# ============================================================
-
-import base64
-from pathlib import Path as _LocalPath
-from typing import Dict, Any, Optional
-
-API_BASE = "https://ftc-api.firstinspires.org/v2.0"
-CRED_FILENAME = "ftc_api_credentials.json"
-TIMEOUT = 25
-
-def load_credentials(cred_file: str = CRED_FILENAME) -> Dict[str, str]:
-    p = _LocalPath(__file__).resolve().parent / cred_file
-    if not p.exists():
-        p2 = _LocalPath.cwd() / cred_file
-        if p2.exists():
-            p = p2
-    if not p.exists():
-        for cand in ["ftc_api_credentials.json", "ftc_credentials.json", "FTC_credentials.json"]:
-            p3 = _LocalPath.cwd() / cand
-            if p3.exists():
-                p = p3
-                break
-    if not p.exists():
-        return {}
-    try:
-        import json
-        with open(p, "r", encoding="utf-8") as f:
-            js = json.load(f)
-    except Exception:
-        return {}
-    user = js.get("user") or js.get("username") or js.get("FTC_USER")
-    token = js.get("token") or js.get("authkey") or js.get("FTC_TOKEN") or js.get("password")
-    if not (user and token):
-        return {}
-    return {"user": str(user), "token": str(token)}
-
-try:
-    _cache = st.cache_data
-except Exception:
-    def _cache(*a, **k):
-        def wrap(f): return f
-        return wrap
-
-@_cache(show_spinner=False)
-def build_headers(user: str, token: str) -> Dict[str, str]:
-    auth = base64.b64encode(f"{user}:{token}".encode()).decode()
-    return {"Accept": "application/json", "Authorization": f"Basic {auth}"}
-
-def api_get(endpoint: str, headers: Dict[str, str], params: Optional[Dict[str, Any]] = None, timeout: int = TIMEOUT):
-    import requests
-    url = f"{API_BASE.rstrip('/')}/{endpoint.lstrip('/')}"
-    resp = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
-    if 200 <= getattr(resp, "status_code", 0) < 300:
-        try:
-            return resp.json()
-        except Exception as e:
-            raise RuntimeError(f"Non-JSON response from {url}: {e}")
-    else:
-        raise RuntimeError(f"API returned {resp.status_code} for {url}: {resp.text[:300]}")
-
-def get_json_safe(path: str):
-    try:
-        creds = load_credentials()
-        headers = build_headers(creds["user"], creds["token"]) if creds else {}
-    except Exception as e:
-        return False, None, {"error": f"Credentials error: {e}"}, f"{API_BASE}{path}"
-
-    if path.startswith("/v2.0/"):
-        endpoint = path.split("/v2.0/")[1]
-    elif path.startswith("v2.0/"):
-        endpoint = path.split("v2.0/")[1]
-    else:
-        endpoint = path.lstrip("/")
-    url = f"{API_BASE.rstrip('/')}/{endpoint}"
-    try:
-        js = api_get(endpoint, headers)
-        return True, 200, js, url
-    except Exception as e:
-        return False, -1, {"error": str(e)}, url
-
-@_cache(show_spinner=False)
-def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        if "{season}" in path:
-            endpoint = path.format(season=season).lstrip("/")
-            if endpoint.startswith("v2.0/"):
-                endpoint = endpoint.split("v2.0/")[1]
-        elif path.startswith("/v2.0/"):
-            endpoint = path.split("/v2.0/")[1]
-        else:
-            endpoint = f"{season}/{path.lstrip('/')}"
-        creds = load_credentials()
-        headers = build_headers(creds["user"], creds["token"]) if creds else {}
-        return api_get(endpoint, headers, params=params)
-    except Exception:
-        return {}
-
-def api_teams(season: int, code: str):
-    return get_json_safe(f"/v2.0/{season}/teams?eventCode={code}")
-
-def api_matches(season: int, code: str):
-    return get_json_safe(f"/v2.0/{season}/matches/{code}")
-
-def api_rankings(season: int, code: str):
-    return get_json_safe(f"/v2.0/{season}/rankings/{code}")
-
-@_cache(show_spinner=False)
-def fetch_event_info(season: str, eventCode: str, headers: Dict[str, str]):
-    return api_get(f"{season}/events", headers)
-
-@_cache(show_spinner=False)
-def fetch_event_teams(season: str, eventCode: str, headers: Dict[str, str]):
-    import pandas as pd
-    js = api_get(f"{season}/teams?eventCode={eventCode}", headers)
-    if isinstance(js, dict):
-        data = js.get("teams") or js.get("Teams") or js.get("items") or js.get("data")
-        if isinstance(data, list):
-            return pd.json_normalize(data)
-    return pd.DataFrame()
-
-@_cache(show_spinner=False)
-def fetch_event_rankings(season: str, eventCode: str, headers: Dict[str, str]):
-    import pandas as pd
-    js = api_get(f"{season}/rankings/{eventCode}", headers)
-    if isinstance(js, dict):
-        data = js.get("rankings") or js.get("Rankings") or js.get("items") or js.get("data")
-        if isinstance(data, list):
-            return pd.json_normalize(data)
-    return pd.DataFrame()
-
-@_cache(show_spinner=False)
-def fetch_event_matches(season: str, eventCode: str, headers: Dict[str, str]):
-    import pandas as pd
-    js = api_get(f"{season}/matches/{eventCode}", headers)
-    if isinstance(js, dict):
-        data = js.get("matches") or js.get("items") or js.get("data")
-        if isinstance(data, list):
-            return pd.json_normalize(data)
-    return pd.DataFrame()
-
-@_cache(show_spinner=False)
-def fetch_event_awards(season: str, eventCode: str, headers: Dict[str, str]):
-    import pandas as pd
-    js = api_get(f"{season}/awards/{eventCode}", headers)
-    if isinstance(js, dict):
-        data = js.get("awards") or js.get("items") or js.get("data")
-        if isinstance(data, list):
-            return pd.json_normalize(data)
-    return pd.DataFrame()
-
-try:
-    _creds = load_credentials()
-    FTC_USER = _creds.get("user")
-    FTC_TOKEN = _creds.get("token")
-    GLOBAL_HEADERS = build_headers(FTC_USER, FTC_TOKEN) if FTC_USER and FTC_TOKEN else {}
-except Exception:
-    FTC_USER = None
-    FTC_TOKEN = None
-    GLOBAL_HEADERS = {}
-# ============================================================
