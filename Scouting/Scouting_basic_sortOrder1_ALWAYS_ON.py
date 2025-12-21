@@ -1,19 +1,16 @@
+import datetime as _dt
+import math
+
 # MAE Scouting – patch13n19d
 # Change from 13n19c: **Family unification rule**
 # - Any event code that starts with "ILCMP" is mapped to the same family "ILCMP".
 #   This unifies Israeli Championship divisions (e.g., ILCMPHDRO / ILCMPSOLR / ILCMPARC / ILCMPPCF) with ILCMP finals.
 # Everything else identical to 13n19c.
 
-import streamlit as st ,os ,hashlib
-import os, json, glob, streamlit as st, hashlib
+import streamlit as st
 import typing as t
-import numpy as np
-import pandas as pd
-import requests
-import datetime as _dt
-import math
-import re
 
+from datetime import datetime
 
 
 def _coerce_season(season):
@@ -24,6 +21,7 @@ def _coerce_season(season):
         y = int(season)
     except Exception:
         try:
+            import streamlit as st
             from datetime import datetime as _dtnow
             y = int(st.session_state.get("season") or st.session_state.get("Season") or _dtnow.now().year)
         except Exception:
@@ -39,7 +37,7 @@ def _coerce_season(season):
     return y
 def _set_creds_state(u, t, meta=None):
     try:
-
+        import streamlit as st
         st.session_state['creds_ok'] = bool(u and t)
         st.session_state['creds_source'] = (meta or {}).get('source') if isinstance(meta, dict) else None
         st.session_state['creds_path'] = (meta or {}).get('path') if isinstance(meta, dict) else None
@@ -49,7 +47,7 @@ def _set_creds_state(u, t, meta=None):
 
 def has_creds():
     try:
-
+        import streamlit as st, os
         if st.session_state.get('creds_ok'):
             return True
         return bool(os.getenv('FTC_API_USER') and os.getenv('FTC_API_TOKEN'))
@@ -109,16 +107,21 @@ def _save_meta():
     _FTC_META.write_text(_json.dumps(_META, indent=2), encoding="utf-8")
 
 
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
+import re
 
 
 
 
-
+import os, json, glob
 def load_ftc_credentials():
 
-#TODO: change the pathes if the API dose not recognize the path
+    import os, json, glob, streamlit as st, hashlib
 
-    FIXED_PATH   = r"/Users/mishmash/Desktop/coading/Robot_stratagy/Scouting"
+    FIXED_PATH   = r"C:\Users\RoboMentor\Robot_stratagy\Scouting"
     ROAMING_PATH = r"C:\Users\RoboMentor\AppData\Roaming\mae_scout"
 
     def _try_read(path):
@@ -170,7 +173,6 @@ def load_ftc_credentials():
             _report_credentials_source(os.path.abspath(p), candidates)
             return u, t
 
-
     # 3) משתני סביבה
     u = os.getenv("FTC_API_USER")
     t = os.getenv("FTC_API_TOKEN")
@@ -181,7 +183,7 @@ def load_ftc_credentials():
         return u, t
 
     # 4) בחירת קובץ / העלאה (פופ-אפ)
-    st.warning("⚠️ לא נמצאו אישורים. ניתן לבחור/להעלאות קובץ JSON ונשמור אותו בנתיב הקבוע.")
+    st.warning("⚠️ לא נמצאו אישורים. ניתן לבחור/להעלות קובץ JSON ונשמור אותו בנתיב הקבוע.")
     open_picker = st.button("📂 בחר/העלה קובץ Credentials")
     if open_picker:
         uploaded = st.file_uploader("בחר את קובץ ה-FTC credentials", type=["json","JASON","txt"], accept_multiple_files=False)
@@ -221,6 +223,7 @@ def load_ftc_credentials():
 
 def _report_credentials_source(used_path, all_candidates):
     """מציג מאיזה קובץ נטענו האישורים ומתריע על כפילויות עם תוכן שונה."""
+    import os, streamlit as st, hashlib
     used_path = os.path.abspath(used_path)
     st.info(f"🔑 Credentials loaded from: `{used_path}`")
 
@@ -233,7 +236,6 @@ def _report_credentials_source(used_path, all_candidates):
         except Exception:
             return None
 
-    used_hash = _sha1(used_path)
     others = sorted(set(os.path.abspath(p) for p in all_candidates if os.path.abspath(p) != used_path))
     if not others:
         return
@@ -539,6 +541,7 @@ def _coerce_season(season):
         return int(season)
     except Exception:
         try:
+            import streamlit as st
             s = st.session_state.get("season") or st.session_state.get("Season") or DEFAULT_SEASON
             return int(s)
         except Exception:
@@ -817,6 +820,7 @@ def _ftc_get_auth():
     except Exception:
         pass
     try:
+        import streamlit as st
         u = u or st.secrets.get("ftc_username", None)
         t = t or st.secrets.get("ftc_token", None)
         sec = st.secrets.get("ftc", {})
@@ -829,6 +833,7 @@ def _ftc_get_auth():
     u = u or os.getenv("FTC_API_USER") or os.getenv("FTC_USER")
     t = t or os.getenv("FTC_API_TOKEN") or os.getenv("FTC_API_KEY") or os.getenv("FTC_TOKEN")
     try:
+        import streamlit as st
         if (u is None or t is None) and st.session_state.get("ftc_auth_ui"):
             ui = st.session_state.get("ftc_auth_ui")
             u = u or ui.get("user")
@@ -862,84 +867,113 @@ def ftc_get(season: int, path: str, params: Optional[Dict[str, Any]] = None) -> 
         return {}
 
 
+
+
+
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_rankings_df(season: int, event_code: str):
     """
-    Returns rankings with RS (Ranking Score) taken EXCLUSIVELY from sortOrder1, as requested.
-    No fallback RP/matches calculation.
+    Returns rankings with RS (Ranking Score). If API lacks explicit RS,
+    compute RS = total RP / qualification matches played.
     Columns: team, rank, RS, RP_total, qualMatches.
     """
-
-    # Handle season formatting
     season = _coerce_season(season) if "_coerce_season" in globals() else season
-
-    # Query FTC API
     data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
-
+    rows = []
     ranking_list = []
     try:
-        ranking_list = (
-            data.get("Rankings")
-            or data.get("rankings")
-            or data.get("items")
-            or data.get("sortOrder1")
-            or data.get("RS")
-            or []
-        )
+        ranking_list = data.get("Rankings") or data.get("rankings") or data.get("items") or []
     except Exception:
         ranking_list = []
 
     def _gi(obj, *keys):
-        """Get first existing key."""
         for k in keys:
             if k in obj and obj[k] is not None:
                 return obj[k]
         return None
 
-    rows = []
-
     for r in ranking_list:
-        _gi(r, "teamNumber", "team", "teamId", "number")
-        _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
-        _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "advancementPoints", "adv_points", "totalPoints","total_points")
-        _gi(r, "matchesPlayed", "played", "qualMatches", "numberOfMatches", "count")
-        _gi(r, "sortOrder1", "SortOrder1", "RS")
-        import pandas as pd
-        data = ftc_get(season, f"/v2.0/{season}/rankings/{event_code}")
-        rankings = data.get("Rankings") or data.get("rankings") or []
+        team     = _gi(r, "teamNumber", "team", "teamId", "number")
+        rank     = _gi(r, "rank", "ranking", "qualAverageRank", "qualRank")
+        rs       = _gi(r, "rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
+        sort1    = _gi(r, "sortOrder1", "SortOrder1", "sort1")
+        rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
+        matches  = _gi(r, "qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
 
-        for r in rankings:
-            try:
-                team = int(r.get("teamNumber"))
-            except Exception:
-                continue
+        try: team = int(team)
+        except Exception: team = None
+        try: rank = int(rank) if rank is not None else None
+        except Exception: rank = None
+        try: rs = float(rs) if rs is not None else None
+        except Exception: rs = None
+        try: sort1 = float(sort1) if sort1 is not None else None
+        except Exception: sort1 = None
+        try: rp_total = float(rp_total) if rp_total is not None else None
+        except Exception: rp_total = None
+        try: matches = int(matches) if matches is not None else None
+        except Exception: matches = None
 
-            rows.append({
-                "team": team,
-                "rank": r.get("rank"),
-                "RS": r.get("sortOrder1"),
-                "RP_total": r.get("rankingPoints"),
-                "qualMatches": r.get("matchesPlayed"),
-            })
+        if rs is None and rp_total is not None and matches and matches > 0:
+            rs = rp_total / matches
 
-        df = pd.DataFrame(rows)
-        if not df.empty:
-            df["RS"] = pd.to_numeric(df["RS"], errors="coerce")
-            df["rank"] = pd.to_numeric(df["rank"], errors="coerce")
-        return df
-
-
+        if team is not None:
+            row = {"team": team}
+            if rank is not None:     row["rank"] = rank
+            if sort1 is not None:    row["sortOrder1"] = sort1
+            if rs is not None:       row["RS"] = round(float(rs), 3)
+            if rp_total is not None: row["RP_total"] = float(rp_total)
+            if matches is not None:  row["qualMatches"] = int(matches)
+            rows.append(row)
 
     import pandas as pd
     df = pd.DataFrame(rows)
-
-    # Ensure presence of required columns, including RS
-    for col in ("rank", "sortOrder1", "RP_total", "qualMatches"): # Use "RS" in tuple
+    for col in ("rank","sortOrder1","RS","RP_total","qualMatches"):
         if col not in df.columns:
             df[col] = None
 
-    # Final column selection, using RS
-    return df[["team", "rank", "RS", "RP_total", "qualMatches"]].copy() if not df.empty else df[["team", "rank", "RS", "RP_total", "qualMatches"]]
+    if not df.empty:
+        if "sortOrder1" in df.columns and df["sortOrder1"].notna().any():
+            df = df.sort_values(["rank","sortOrder1","team"], ascending=[True, False, True])
+        else:
+            df = df.sort_values(["rank","team"], ascending=[True, True])
+
+    return df[["team","rank","sortOrder1","RS","RP_total","qualMatches"]].copy() if not df.empty else df
+
+@st.cache_data(show_spinner=False, ttl=300)
+def ftc_alliances(season: int, event_code: str):
+    data = ftc_get(season, f"/v2.0/{season}/alliances/{event_code}")
+    out = []
+    try:
+        arr = data.get("Alliances") or data.get("alliances") or []
+        for idx, a in enumerate(arr, start=1):
+            num = a.get("number") or a.get("allianceNumber") or idx
+            teams = []
+            cap = a.get("captain") or a.get("Captain") or None
+            if cap:
+                tn = cap.get("teamNumber") or cap.get("team") or cap.get("teamId")
+                if tn:
+                    try:
+                        teams.append(int(tn))
+                    except:
+                        pass
+            picks = a.get("round") or a.get("picks") or a.get("teams") or []
+
+            def _extract(t):
+                if isinstance(t, dict):
+                    return t.get("teamNumber") or t.get("team") or t.get("teamId")
+                return t
+
+            for t in picks:
+                tn = _extract(t)
+                if tn:
+                    try:
+                        teams.append(int(tn))
+                    except:
+                        pass
+            out.append({"number": int(num), "teams": teams})
+    except Exception:
+        pass
+    return out
 
 
 @st.cache_data(show_spinner=False, ttl=300)
@@ -963,9 +997,37 @@ def ftc_awards(season: int, event_code: str):
     return norm
 
 
-def ftc_events(season: int) -> pd.DataFrame:
+@st.cache_data(show_spinner=False, ttl=300)
+def ftc_playoff_matches(season: int, event_code: str):
+    data = ftc_get(season, f"/v2.0/{season}/matches/{event_code}",
+                   params={"tournamentLevel": "Playoff", "start": 0, "end": 999})
+    matches = data.get("Matches") or data.get("matches") or data.get("items") or []
+    out = []
+    for m in matches:
+        wa = m.get("winner") or m.get("matchWinner") or m.get("winningAlliance") or ""
+        red = m.get("red") or {}
+        blue = m.get("blue") or {}
+
+        def collect(side):
+            teams = side.get("teams") or side.get("participant") or side.get("alliances") or []
+            arr = []
+            for t in teams:
+                tn = t.get("teamNumber") if isinstance(t, dict) else t
+                try:
+                    arr.append(int(tn))
+                except:
+                    pass
+            return arr
+
+        out.append({"winner": str(wa).lower(), "red": collect(red), "blue": collect(blue)})
+    return out
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def ftc_events(season: int):
+    """Return list of events for the season with normalized keys: code, name, country_code, country_name."""
     data = ftc_get(season, f"/v2.0/{season}/events")
-    items = data.get("events") or data.get("Events") or data.get("items") or []
+    items = data.get("Events") or data.get("events") or data.get("items") or []
     out = []
     for e in items:
         code = e.get("code") or e.get("eventCode") or e.get("event_code") or e.get("eventcode")
@@ -973,39 +1035,10 @@ def ftc_events(season: int) -> pd.DataFrame:
         cc = e.get("country") or e.get("countryCode") or e.get("country_code") or ""
         cn = e.get("countryName") or e.get("country_name") or ""
         out.append(
-            {"code": str(code or "").strip(), "name": str(name or "").strip(),
-             "country_code": str(cc or "").upper(), "country_name": str(cn or "")})
-    return pd.DataFrame(out)
+            {"code": str(code or "").strip(), "name": str(name or "").strip(), "country_code": str(cc or "").upper(),
+             "country_name": str(cn or "")})
+    return out
 
-
-def ftc_teams(season: int, event_code: str):
-    data = ftc_get(season, f"/v2.0/{season}/teams/{event_code}")
-    items = data.get("teams") or data.get("Teams") or data.get("items") or []
-    out = []
-    for t in items:
-        team = t.get("teamNumber") or t.get("number")
-        name = t.get("name") or t.get("teamName") or ""
-        city = t.get("city") or ""
-        state = t.get("stateProv") or ""
-        country = t.get("country") or ""
-        rookie = t.get("rookieYear")
-        try:
-            team = int(team)
-        except:
-            team = None
-        try:
-            rookie = int(rookie)
-        except:
-            rookie = None
-        if team:
-            out.append(
-                {"team": team, "name": name, "city": city, "state": state, "country": country,
-                 "rookie": rookie})
-    return pd.DataFrame(out)
-
-#-----------------
-#Pasted from A
-#-----------------
 
 def _has_auth():
     u, t = _ftc_get_auth()
@@ -1226,7 +1259,7 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
     return summary, per_team_detail
 
 
-APP_TITLE = "MISHMASH Scouting platform - Version STEP3bd (V11b) (updated: 15.10.2025)"
+APP_TITLE = "MISHMASH Scouting platform - Version 13n21 (V10i) (updated: 07.09.2025)"
 BASE_URL = "https://ftc-api.firstinspires.org"
 TIMEOUT = 25
 TEAMS_PER_ALLIANCE = 2
@@ -1373,6 +1406,7 @@ def events_list(season: int) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
         try:
+            import streamlit as st
             total = 0 if not isinstance(items, list) else len(items)
             keys = list((items[0].keys())) if isinstance(items, list) and items else []
             st.warning(f"Failed to list events: empty events dataframe. Check credentials/network (server ok={ok}, items={total})")
@@ -1385,6 +1419,7 @@ def events_list(season: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["event_code","name","country","start","family"])
 
     try:
+        import streamlit as st
         country_filter = (st.session_state.get("country_filter") or st.session_state.get("Country") or "").strip().upper()
         if country_filter:
             df = df[df["country"] == country_filter].copy()
@@ -1807,7 +1842,6 @@ def compute_epa_statbotics_with_history(base: pd.DataFrame, ev_view: pd.DataFram
             })
 
     final_df = pd.DataFrame({"team": list(EPA.keys())})
-    final_df["sortOrder1"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA"] = pd.to_numeric(final_df["team"].map(EPA), errors="coerce")
     final_df["EPA_Auto"] = pd.to_numeric(final_df["team"].map(EPA_A), errors="coerce")
     final_df["EPA_Endgame"] = pd.to_numeric(final_df["team"].map(EPA_E), errors="coerce")
@@ -1890,7 +1924,6 @@ def rankings_for_event(season: int, code: str) -> pd.DataFrame:
         rows.append({"team": int(t), "rank": _get_int("rank", "Rank"),
                      "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T")})
     return pd.DataFrame(rows)
-
 
 
 @st.cache_data(ttl=1800, show_spinner=True)
@@ -2114,7 +2147,7 @@ def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master:
         lambda r: f"{_int0(r['W'])}-{_int0(r['L'])}" + (f"-{_int0(r.get('T', 0))}" if _int0(r.get('T', 0)) > 0 else ""),
         axis=1)
     df = df.rename(columns={"OPR_last_family": "OPR"})
-    show = ["team", "team_name", "sortOrder1","country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "RECORD"]
+    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "RECORD"]
     df = df.drop_duplicates(subset=["team"], keep="first")
     return df[show].sort_values(by=["EPA", "OPR"], ascending=[False, False], na_position="last")
 
@@ -2261,7 +2294,7 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
 
 
 # ---------- UI ----------
-
+st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.caption("Build: **V8** — single-event ranking-only, cached Adv tab")
 
 # ---- Manual refresh for cached computations ----
@@ -2298,7 +2331,7 @@ def ensure_ftc_creds_interactive(default_season=None):
     ftc_api_credentials.json and save it to %APPDATA%\mae_scout\ftc_api_credentials.json.
     """
     import os, json, pathlib
-
+    import streamlit as st
 
     status = None
     try:
@@ -2599,13 +2632,12 @@ with tab_rank:
 
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-        hc[2].markdown(_header_cell('sortOrder1', 0, 'center' ), unsafe_allow_html=True)
-        hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
-        hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
-        hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-        hc[8].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+        hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+        hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+        hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
+        hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
             c = st.columns(COLS, gap="small")
             t_id = getattr(row, "team", None)
@@ -2635,7 +2667,7 @@ with tab_rank:
                 except Exception:
                     return ""
 
-            c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>", unsafe_allow_html=True)
+
             c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
             c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
             c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
@@ -2856,18 +2888,7 @@ def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override
     return df_out
 
 
-def get_sortorder1(df_in, season=None, df_out=None):
-    import pandas as pd
-
-    if df_out is None:
-        df_out = df_in
-
-    if df_out is None or getattr(df_out, "empty", True):
-        return pd.DataFrame()
-
-    ...
-    return df_out
-
+# ---------- END FIX ----------
 
 
 with tab_single:
@@ -2942,12 +2963,6 @@ with tab_single:
                 except Exception:
                     rank_df2 = pd.DataFrame()
 
-            if rank_df2.empty:
-                rank_df2 = get_sortorder1(rank_df2, str(season))
-            else:
-                # keep only teams in this event
-                if teams:
-                    rank_df2 = get_sortorder1(rank_df2, str(season), rank_df2)
 
                 # build event-only Record
                 rec = {}
@@ -2986,7 +3001,7 @@ with tab_single:
                     rec_df["RECORD"] = rec_df.apply(
                         lambda r: f"{int(r['W'])}-{int(r['L'])}" + (f"-{int(r['T'])}" if int(r['T']) > 0 else ""),
                         axis=1)
-                    rank_df2 = get_sortorder1(rank_df2, str(season))
+
 
                 # --- Normalize RECORD column (handle merges) ---
                 cols = set(rank_df2.columns.astype(str))
@@ -3034,13 +3049,11 @@ with tab_single:
                                     rank_df2['RECORD'] = rank_df2['team'].map(rec_map).fillna('').astype(str)
                         except Exception:
                             pass
-                    rank_df2 = get_sortorder1(rank_df2, str(season))
-
                     # --- Merge Endgame & Teleop clean (from FTC API) ---
                     try:
                         _user = st.session_state.get("ftc_user_input") or st.secrets.get("ftc_api_user", "aviad")
-                        _token = st.session_state.get("ftc_token_input") or st.secrets.get("ftc_api_token","90A41204-F536-41DE-B35D-8A128719ED23")
-
+                        _token = st.session_state.get("ftc_token_input") or st.secrets.get("ftc_api_token",
+                                                                                           "90A41204-F536-41DE-B35D-8A128719ED23")
                     except Exception:
                         _user, _token = "aviad", "90A41204-F536-41DE-B35D-8A128719ED23"
                     # ---------- FIX: Replaced 'selected_event_code' with 'ev_code' ----------
@@ -3078,16 +3091,14 @@ with tab_single:
 
                 # Header
                 hc = st.columns(COLS, gap='small')
-
-                hc[0].markdown(_header_cell('RS', 36, 'center'), unsafe_allow_html=True)
-                hc[1].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
-                hc[2].markdown(_header_cell('Team', 0, 'center', 'team'), unsafe_allow_html=True)
-                hc[3].markdown(_header_cell('EPA', -18, 'center'), unsafe_allow_html=True)
-                hc[4].markdown(_header_cell('npOPR', 0, 'center'), unsafe_allow_html=True)
-                hc[5].markdown(_header_cell('Auto EPA', 0, 'center'), unsafe_allow_html=True)
-                hc[6].markdown(_header_cell('Teleop EPA', 0, 'center'), unsafe_allow_html=True)
-                hc[7].markdown(_header_cell('Endgame EPA', 36, 'center'), unsafe_allow_html=True)
-                hc[8].markdown(_header_cell('Record', 0, 'center'), unsafe_allow_html=True)
+                hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
+                hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
+                hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+                hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+                hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+                hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+                hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
+                hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
                 for idx, row in enumerate(rank_df2.itertuples(index=False), start=1):
@@ -3187,8 +3198,7 @@ with tab_single:
                             return ""
 
 
-                    c[1].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
-                                  unsafe_allow_html=True)
+
                     c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>",
                                   unsafe_allow_html=True)
                     c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>",
@@ -3199,41 +3209,8 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[7].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+                    c[7].markdown( f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
 
-# === V10h: Interactive credentials fixer ===
-# ============================================================
+# ===== Rankings UI helper =====
 
-
-
-# ===================== PATCH: FIX RS / sortOrder1 =====================
-def _ensure_rs_col(df, season: int, event_code: str):
-    """#     Ensure 'RS' column exists and is sourced ONLY from FTC Rankings sortOrder1.
-    Safe: always returns a DataFrame and never overwrites valid RS values.
-    """
-    import pandas as pd
-    if df is None or not isinstance(df, pd.DataFrame):
-        return pd.DataFrame() if df is None else df
-
-    # Fetch RS from FTC API via cached helper
-    try:
-        rsdf = ftc_rankings_df(int(season), str(event_code))
-    except Exception:
-        rsdf = None
-
-    if isinstance(rsdf, pd.DataFrame) and not rsdf.empty and 'team' in rsdf.columns and 'RS' in rsdf.columns:
-        rs_map = rsdf.set_index('team')['RS']
-        if 'team' in df.columns:
-            # Only fill missing/NaN RS
-            if 'RS' not in df.columns:
-                df['RS'] = None
-            mask = df['RS'].isna()
-            df.loc[mask, 'RS'] = pd.to_numeric(df.loc[mask, 'team'], errors='coerce').map(rs_map)
-
-    # Coerce to numeric for display
-    if 'RS' in df.columns:
-        df['RS'] = pd.to_numeric(df['RS'], errors='coerce')
-
-    return df
-# =================== END PATCH ===================
