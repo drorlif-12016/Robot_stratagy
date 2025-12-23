@@ -6,6 +6,7 @@ import typing as t
 from datetime import datetime
 
 
+
 def _coerce_season(season):
     """
     Clamp season to API supported range: 2006..current active year.
