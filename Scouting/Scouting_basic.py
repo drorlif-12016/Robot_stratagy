@@ -2182,7 +2182,7 @@ def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master:
         except Exception:
             pass
 
-    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "sortOrder1", "RS", "RECORD"]
+    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "sortOrder1", "RECORD"]
     for c in show:
         if c not in df.columns: df[c] = np.nan
 
@@ -2320,7 +2320,7 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
             date = evs_meta["start_dt"].min()
             date_str = date.date().isoformat() if pd.notna(date) else ""
 
-        rows.append({"event": fam_name, "date": date_str, "rank": rk, "TBP1": so1,
+        rows.append({"event": fam_name, "date": date_str, "rank": rk, "sortOrder1": so1,
                      "record": f"{W}-{L}" + (f"-{T}" if T > 0 else ""),
                      "EPA": round(EPA, 4), "EPA Auto": round(EPA_A, 4), "EPA Teleop": round(EPA_T, 4),
                      "EPA Endgame": round(EPA_E, 4),
@@ -2533,7 +2533,7 @@ def tidy_epa_inline_df(df):
     ev = pick('event', 'event_name', 'ev', 'ev_name', 'event code', 'event_code')
     if ev: out['Event'] = df[ev]
     so1 = pick('tbp1', 'sortorder1', 'sort order 1', 'so1')
-    if so1: out['TBP1'] = df[so1]
+    if so1: out['sortOrder1'] = df[so1]
     epa = pick('epa')
     if epa: out['EPA'] = df[epa]
     npor = pick('npopr', 'np_opr', 'npo', 'opr_np', 'opr')
@@ -2658,7 +2658,7 @@ with tab_rank:
     if rank_df.empty:
         st.info("No teams found for this country filter.")
     else:
-        COLS = [0.5, 4.2, 0.85, 0.9, 0.85, 0.85, 0.85, 0.85, 0.8, 1.1]  # added TBP1 col
+        COLS = [0.5, 5.0, 0.85, 0.9, 0.85, 0.85, 0.85, 0.85, 1.1]  # removed RS col
         hc = st.columns(COLS, gap='small')
 
 
@@ -2675,14 +2675,13 @@ with tab_rank:
 
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-        hc[2].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+        hc[2].markdown(_header_cell('sortOrder1', 0, 'right'), unsafe_allow_html=True)
         hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
         hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
         hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
         hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
         hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-        hc[8].markdown(_header_cell('RS', 0, 'right'), unsafe_allow_html=True)
-        hc[9].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+        hc[8].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
             c = st.columns(COLS, gap="small")
             t_id = getattr(row, "team", None)
@@ -2702,7 +2701,7 @@ with tab_rank:
                         df_ev = tidy_epa_inline_df(df_ev)
                         st.dataframe(df_ev, use_container_width=True, hide_index=True,
                                      column_config={
-                                         "TBP1": st.column_config.NumberColumn(format="%.2f"),
+                                         "sortOrder1": st.column_config.NumberColumn(format="%.2f"),
                                          "EPA": st.column_config.NumberColumn(format="%.2f"),
                                          "npOPR": st.column_config.NumberColumn(format="%.2f"),
                                          "Auto EPA": st.column_config.NumberColumn(format="%.2f"),
@@ -2730,9 +2729,7 @@ with tab_rank:
                           unsafe_allow_html=True)
             c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                           unsafe_allow_html=True)
-            c[8].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
-                          unsafe_allow_html=True)
-            c[9].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+            c[8].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                           unsafe_allow_html=True)
     csv = rank_df.rename(columns={"OPR": "npOPR"}).to_csv(index=False).encode("utf-8-sig")
     st.download_button("Download CSV", data=csv, file_name=f"mae_scout_rankings_{country}_{season}.csv",
@@ -2953,7 +2950,7 @@ with tab_single:
     st.markdown("### 🧭 אירוע בודד — EPA (מתבסס על הנתונים שכבר נטענו)")
 
     # same CSS & helpers as Rankings
-    COLS = [0.5, 4.2, 0.85, 0.9, 0.85, 0.85, 0.85, 0.85, 0.8, 1.1]  # added TBP1 col
+    COLS = [0.5, 5.0, 0.85, 0.9, 0.85, 0.85, 0.85, 0.85, 1.1]  # removed RS col
 
     def _header_cell(txt, shift=0, align='center', cls=''):
         a = str(align).lower()
@@ -3152,14 +3149,13 @@ with tab_single:
                 hc = st.columns(COLS, gap='small')
                 hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
                 hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-                hc[2].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+                hc[2].markdown(_header_cell('sortOrder1', 0, 'right'), unsafe_allow_html=True)
                 hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
                 hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
                 hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
                 hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
                 hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-                hc[8].markdown(_header_cell('RS', 0, 'right'), unsafe_allow_html=True)
-                hc[9].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+                hc[8].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
                 for idx, row in enumerate(rank_df2.itertuples(index=False), start=1):
@@ -3273,8 +3269,6 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[8].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
-                                  unsafe_allow_html=True)
-                    c[9].markdown(
+                    c[8].markdown(
                         f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
