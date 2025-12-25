@@ -595,8 +595,12 @@ def adv_api_rankings(season: int, code: str) -> pd.DataFrame:
             rank = int(r.get("rank") or r.get("ranking") or r.get("qualAverageRank") or r.get("qualRank"))
         except Exception:
             rank = None
+        try:
+            so1 = float(r.get("sortOrder1") or r.get("SortOrder1") or 0)
+        except Exception:
+            so1 = None
         if team and rank:
-            rows.append({"team": team, "rank": rank})
+            rows.append({"team": team, "rank": rank, "sortOrder1": so1})
     return pd.DataFrame(rows)
 
 
@@ -898,6 +902,7 @@ def ftc_rankings_df(season: int, event_code: str):
         rs       = _gi(r, "rankingScore", "RankingScore", "RS", "rankingPointsAverage", "avgRankingPoints", "rankScore")
         rp_total = _gi(r, "rankingPoints", "rp", "totalRankingPoints", "totalRP", "rankingPointsTotal")
         matches  = _gi(r, "qualMatchesPlayed", "matchesPlayed", "played", "qualMatches")
+        sort1    = _gi(r, "sortOrder1", "SortOrder1", "so1")
 
         try: team = int(team)
         except Exception: team = None
@@ -909,6 +914,8 @@ def ftc_rankings_df(season: int, event_code: str):
         except Exception: rp_total = None
         try: matches = int(matches) if matches is not None else None
         except Exception: matches = None
+        try: sort1 = float(sort1) if sort1 is not None else None
+        except Exception: sort1 = None
 
         if rs is None and rp_total is not None and matches and matches > 0:
             rs = rp_total / matches
@@ -919,14 +926,15 @@ def ftc_rankings_df(season: int, event_code: str):
             if rs is not None:       row["RS"] = round(float(rs), 3)
             if rp_total is not None: row["RP_total"] = float(rp_total)
             if matches is not None:  row["qualMatches"] = int(matches)
+            if sort1 is not None:    row["sortOrder1"] = float(sort1)
             rows.append(row)
 
     import pandas as pd
     df = pd.DataFrame(rows)
-    for col in ("rank","RS","RP_total","qualMatches"):
+    for col in ("rank","RS","RP_total","qualMatches", "sortOrder1"):
         if col not in df.columns:
             df[col] = None
-    return df[["team","rank","RS","RP_total","qualMatches"]].copy() if not df.empty else df
+    return df[["team","rank","RS","RP_total","qualMatches", "sortOrder1"]].copy() if not df.empty else df
 
 @st.cache_data(show_spinner=False, ttl=300)
 def ftc_alliances(season: int, event_code: str):
@@ -1911,7 +1919,8 @@ def rankings_for_event(season: int, code: str) -> pd.DataFrame:
             return None
 
         rows.append({"team": int(t), "rank": _get_int("rank", "Rank"),
-                     "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T")})
+                     "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T"),
+                     "sortOrder1": _get_int("sortOrder1", "SortOrder1")})
     return pd.DataFrame(rows)
 
 
@@ -2604,7 +2613,7 @@ with tab_rank:
     if rank_df.empty:
         st.info("No teams found for this country filter.")
     else:
-        COLS = [0.5, 4.6, 0.85, 0.9, 0.85, 0.85, 0.85, 0.9, 1.1]  # added RS col
+        COLS = [0.5, 4.2, 0.85, 0.9, 0.85, 0.85, 0.85, 0.85, 0.8, 1.1]  # added TBP1 col
         hc = st.columns(COLS, gap='small')
 
 
@@ -2626,7 +2635,9 @@ with tab_rank:
         hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
         hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
         hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-        hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+        hc[7].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+        hc[8].markdown(_header_cell('RS', 0, 'right'), unsafe_allow_html=True)
+        hc[9].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
             c = st.columns(COLS, gap="small")
             t_id = getattr(row, "team", None)
@@ -2664,7 +2675,11 @@ with tab_rank:
                           unsafe_allow_html=True)
             c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                           unsafe_allow_html=True)
-            c[7].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
+            c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>",
+                          unsafe_allow_html=True)
+            c[8].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
+                          unsafe_allow_html=True)
+            c[9].markdown(f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                           unsafe_allow_html=True)
     csv = rank_df.rename(columns={"OPR": "npOPR"}).to_csv(index=False).encode("utf-8-sig")
     st.download_button("Download CSV", data=csv, file_name=f"mae_scout_rankings_{country}_{season}.csv",
@@ -2885,8 +2900,7 @@ with tab_single:
     st.markdown("### 🧭 אירוע בודד — EPA (מתבסס על הנתונים שכבר נטענו)")
 
     # same CSS & helpers as Rankings
-    COLS = [0.5, 4.6, 0.85, 0.9, 0.85, 0.85, 0.85, 0.9, 1.1]  # added RS col
-
+    COLS = [0.5, 4.2, 0.85, 0.9, 0.85, 0.85, 0.85, 0.85, 0.8, 1.1]  # added TBP1 col
 
     def _header_cell(txt, shift=0, align='center', cls=''):
         a = str(align).lower()
@@ -3060,6 +3074,9 @@ with tab_single:
                             import pandas as pd
                             _rs_map = _rsdf.set_index('team')['RS']
                             rank_df2['RS'] = pd.to_numeric(rank_df2['team'], errors='coerce').map(_rs_map)
+                            if 'sortOrder1' in _rsdf.columns:
+                                _so1_map = _rsdf.set_index('team')['sortOrder1']
+                                rank_df2['sortOrder1'] = pd.to_numeric(rank_df2['team'], errors='coerce').map(_so1_map)
                     except Exception:
                         pass
 
@@ -3087,7 +3104,9 @@ with tab_single:
                 hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
                 hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
                 hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-                hc[7].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
+                hc[7].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+                hc[8].markdown(_header_cell('RS', 0, 'right'), unsafe_allow_html=True)
+                hc[9].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
 
                 # Rows (use same attribute names as Rankings)
                 for idx, row in enumerate(rank_df2.itertuples(index=False), start=1):
@@ -3197,6 +3216,10 @@ with tab_single:
                                   unsafe_allow_html=True)
                     c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[7].markdown(
+                    c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[8].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
+                                  unsafe_allow_html=True)
+                    c[9].markdown(
                         f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
