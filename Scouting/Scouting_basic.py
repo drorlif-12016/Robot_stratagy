@@ -471,13 +471,8 @@ def dataset_signature(ev_view, base_raw, teams_master):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def build_rankings_cached(sig, base_raw, ev_view):
-    try:
-        if 'build_rankings' in globals():
-            return globals()['build_rankings'](sig, base_raw, ev_view)
-    except Exception:
-        pass
-    return None
+def build_rankings_cached(sig, ev_view, base_raw, teams_master, country, season=None):
+    return build_ranking_table(ev_view, base_raw, teams_master, country, season)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -2070,7 +2065,7 @@ def _int0(x):
 
 # ---------- Rankings (OPR = last family) ----------
 def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master: pd.DataFrame,
-                        country: str) -> pd.DataFrame:
+                        country: str, season: int = None) -> pd.DataFrame:
     teams_master_f = teams_master[teams_master["country"].apply(lambda c: _country_matches(c, country))].copy()
     if teams_master_f.empty: return pd.DataFrame()
 
@@ -2145,7 +2140,33 @@ def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master:
         lambda r: f"{_int0(r['W'])}-{_int0(r['L'])}" + (f"-{_int0(r.get('T', 0))}" if _int0(r.get('T', 0)) > 0 else ""),
         axis=1)
     df = df.rename(columns={"OPR_last_family": "OPR"})
-    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "RECORD"]
+
+    # --- sortOrder1 & RS Injection ---
+    if season and not last_fam_per_team.empty:
+        try:
+            last_families = last_fam_per_team["last_family"].dropna().unique()
+            rk_list = []
+            for fam in last_families:
+                codes = ev_view.loc[ev_view["family"] == fam, "event_code"].tolist()
+                for c in codes:
+                    rk = ftc_rankings_df(season, c)
+                    if not rk.empty:
+                        cols = ["team"]
+                        if "sortOrder1" in rk.columns: cols.append("sortOrder1")
+                        if "RS" in rk.columns: cols.append("RS")
+                        if len(cols) > 1:
+                            rk_list.append(rk[cols])
+                        break
+            if rk_list:
+                all_rk = pd.concat(rk_list).drop_duplicates(subset=["team"], keep="last")
+                df = df.merge(all_rk, on="team", how="left")
+        except Exception:
+            pass
+
+    show = ["team", "team_name", "country", "EPA", "EPA_Auto", "EPA_Teleop", "EPA_Endgame", "OPR", "sortOrder1", "RS", "RECORD"]
+    for c in show:
+        if c not in df.columns: df[c] = np.nan
+
     df = df.drop_duplicates(subset=["team"], keep="first")
     return df[show].sort_values(by=["EPA", "OPR"], ascending=[False, False], na_position="last")
 
@@ -2437,7 +2458,7 @@ _need_prefetch = (
 if _need_prefetch and not base_raw.empty:
     with st.spinner("Precomputing rankings, advancements, and diagnostics"):
         with ThreadPoolExecutor(max_workers=3) as ex:
-            fut_rank = ex.submit(build_ranking_table, ev_view, base_raw, teams_master, country)
+            fut_rank = ex.submit(build_ranking_table, ev_view, base_raw, teams_master, country, int(season))
             fut_adv = ex.submit(compute_advancement_table, ev_view, base_raw, teams_master, country, int(season),
                                 pd.DataFrame())
             fut_diag = ex.submit(build_diagnostics, ev_view, base_raw, teams_master, country)
@@ -2612,7 +2633,7 @@ with tab_rank:
 
     with st.spinner("Computing rankings"):
         rank_df = rank_df if isinstance(rank_df, pd.DataFrame) else build_rankings_cached(sig, ev_view, base_raw,
-                                                                                          teams_master, country)
+                                                                                          teams_master, country, int(season))
     st.caption(
         "EPA per Statbotics (moving-average). בעמודת **npOPR** מוצג ה‑OPR של המשפחה האחרונה בעונה (np, כולל פלייאוף). אירועי ILCMP* מאוחדים למשפחה אחת.")
     if rank_df.empty:
@@ -2668,7 +2689,9 @@ with tab_rank:
 
             def _fmt(x):
                 try:
-                    return f"{float(x):.1f}"
+                    if x is None or (isinstance(x, (float, int)) and math.isnan(float(x))) or x == "":
+                        return ""
+                    return f"{float(x):.2f}"
                 except Exception:
                     return ""
 
@@ -2966,7 +2989,7 @@ with tab_single:
             if rank_df2.empty:
                 sig = f"rnk|{int(season)}|{str(country).upper()}"
                 try:
-                    rank_df2 = build_rankings_cached(sig, ev_view, base_raw, teams_master, country)
+                    rank_df2 = build_rankings_cached(sig, ev_view, base_raw, teams_master, country, int(season))
                 except Exception:
                     rank_df2 = pd.DataFrame()
 
@@ -3205,6 +3228,8 @@ with tab_single:
 
                     def _fmt(x):
                         try:
+                            if x is None or (isinstance(x, (float, int)) and math.isnan(float(x))) or x == "":
+                                return ""
                             return f"{float(x):.2f}"
                         except Exception:
                             return ""
