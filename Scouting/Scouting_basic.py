@@ -2260,12 +2260,15 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
                 else:
                     L += 1
 
-        rk = None
+        rk = None; so1 = None
         codes_in_family = ev_view.loc[ev_view["family"] == fam, "event_code"].tolist()
         for code in codes_in_family:
             rk_df = rankings_for_event(season, code)
             if not rk_df.empty and (rk_df["team"] == team).any():
-                rk = int(rk_df.loc[rk_df["team"] == team, "rank"].iloc[0]);
+                _m = (rk_df["team"] == team)
+                rk = int(rk_df.loc[_m, "rank"].iloc[0])
+                if "sortOrder1" in rk_df.columns:
+                    so1 = rk_df.loc[_m, "sortOrder1"].iloc[0]
                 break
 
         evs_meta = ev_view[ev_view["family"] == fam].copy().sort_values("start_dt")
@@ -2277,7 +2280,7 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
             date = evs_meta["start_dt"].min()
             date_str = date.date().isoformat() if pd.notna(date) else ""
 
-        rows.append({"event": fam_name, "date": date_str, "rank": rk,
+        rows.append({"event": fam_name, "date": date_str, "rank": rk, "TBP1": so1,
                      "record": f"{W}-{L}" + (f"-{T}" if T > 0 else ""),
                      "EPA": round(EPA, 4), "EPA Auto": round(EPA_A, 4), "EPA Teleop": round(EPA_T, 4),
                      "EPA Endgame": round(EPA_E, 4),
@@ -2489,6 +2492,8 @@ def tidy_epa_inline_df(df):
     out = pd.DataFrame()
     ev = pick('event', 'event_name', 'ev', 'ev_name', 'event code', 'event_code')
     if ev: out['Event'] = df[ev]
+    so1 = pick('tbp1', 'sortorder1', 'sort order 1', 'so1')
+    if so1: out['TBP1'] = df[so1]
     epa = pick('epa')
     if epa: out['EPA'] = df[epa]
     npor = pick('npopr', 'np_opr', 'npo', 'opr_np', 'opr')
@@ -2630,12 +2635,12 @@ with tab_rank:
 
         hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
         hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-        hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
-        hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
-        hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
-        hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-        hc[7].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+        hc[2].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+        hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+        hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+        hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+        hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
         hc[8].markdown(_header_cell('RS', 0, 'right'), unsafe_allow_html=True)
         hc[9].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
         for idx, row in enumerate(rank_df.itertuples(index=False), start=1):
@@ -2668,14 +2673,13 @@ with tab_rank:
                     return ""
 
 
-            c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
-            c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
-            c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
-            c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Teleop', ''))}</div>",
+            c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>", unsafe_allow_html=True)
+            c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>", unsafe_allow_html=True)
+            c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>", unsafe_allow_html=True)
+            c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>", unsafe_allow_html=True)
+            c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Teleop', ''))}</div>",
                           unsafe_allow_html=True)
-            c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
-                          unsafe_allow_html=True)
-            c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>",
+            c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                           unsafe_allow_html=True)
             c[8].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
                           unsafe_allow_html=True)
@@ -3099,12 +3103,12 @@ with tab_single:
                 hc = st.columns(COLS, gap='small')
                 hc[0].markdown(_header_cell('Rank', 0, 'center'), unsafe_allow_html=True)
                 hc[1].markdown(_header_cell('Team', 0, 'left', 'team'), unsafe_allow_html=True)
-                hc[2].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
-                hc[3].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
-                hc[4].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
-                hc[5].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
-                hc[6].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
-                hc[7].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+                hc[2].markdown(_header_cell('TBP1', 0, 'right'), unsafe_allow_html=True)
+                hc[3].markdown(_header_cell('EPA', -18, 'right'), unsafe_allow_html=True)
+                hc[4].markdown(_header_cell('npOPR', 0, 'right'), unsafe_allow_html=True)
+                hc[5].markdown(_header_cell('Auto EPA', 0, 'right'), unsafe_allow_html=True)
+                hc[6].markdown(_header_cell('Teleop EPA', 0, 'right'), unsafe_allow_html=True)
+                hc[7].markdown(_header_cell('Endgame EPA', 36, 'right'), unsafe_allow_html=True)
                 hc[8].markdown(_header_cell('RS', 0, 'right'), unsafe_allow_html=True)
                 hc[9].markdown(_header_cell('Record', 0, 'right'), unsafe_allow_html=True)
 
@@ -3206,17 +3210,17 @@ with tab_single:
                             return ""
 
 
-                    c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>",
+                    c[2].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>",
+                    c[3].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>",
+                    c[4].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'OPR', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Teleop', ''))}</div>",
+                    c[5].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Auto', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
+                    c[6].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Teleop', ''))}</div>",
                                   unsafe_allow_html=True)
-                    c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'sortOrder1', ''))}</div>",
+                    c[7].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'EPA_Endgame', ''))}</div>",
                                   unsafe_allow_html=True)
                     c[8].markdown(f"<div class='mae-right'>{_fmt(getattr(row, 'RS', ''))}</div>",
                                   unsafe_allow_html=True)
