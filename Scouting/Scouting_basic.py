@@ -1903,19 +1903,19 @@ def rankings_for_event(season: int, code: str) -> pd.DataFrame:
         t = r.get("teamNumber") or r.get("team") or r.get("number")
         if t is None: continue
 
-        def _get_int(*names):
+        def _get_val(*names, is_float=False):
             for n in names:
                 v = r.get(n)
                 if v is not None:
                     try:
-                        return int(v)
+                        return float(v) if is_float else int(v)
                     except:
                         pass
             return None
 
-        rows.append({"team": int(t), "rank": _get_int("rank", "Rank"),
-                     "wins": _get_int("wins", "W"), "losses": _get_int("losses", "L"), "ties": _get_int("ties", "T"),
-                     "sortOrder1": _get_int("sortOrder1", "SortOrder1")})
+        rows.append({"team": int(t), "rank": _get_val("rank", "Rank"),
+                     "wins": _get_val("wins", "W"), "losses": _get_val("losses", "L"), "ties": _get_val("ties", "T"),
+                     "sortOrder1": _get_val("sortOrder1", "SortOrder1", is_float=True)})
     return pd.DataFrame(rows)
 
 
@@ -2141,25 +2141,44 @@ def build_ranking_table(ev_view: pd.DataFrame, base: pd.DataFrame, teams_master:
         axis=1)
     df = df.rename(columns={"OPR_last_family": "OPR"})
 
-    # --- sortOrder1 & RS Injection ---
-    if season and not last_fam_per_team.empty:
+    # --- sortOrder1 (SUM) & RS (Latest) Injection ---
+    if season and not long_df.empty:
         try:
-            last_families = last_fam_per_team["last_family"].dropna().unique()
-            rk_list = []
-            for fam in last_families:
+            team_fams = long_df[["team", "ev_family"]].drop_duplicates()
+            all_fams = team_fams["ev_family"].dropna().unique()
+            
+            # Replicate dropdown logic: one sortOrder1 per (team, family)
+            team_fam_data = {}
+            for fam in all_fams:
                 codes = ev_view.loc[ev_view["family"] == fam, "event_code"].tolist()
                 for c in codes:
                     rk = ftc_rankings_df(season, c)
                     if not rk.empty:
-                        cols = ["team"]
-                        if "sortOrder1" in rk.columns: cols.append("sortOrder1")
-                        if "RS" in rk.columns: cols.append("RS")
-                        if len(cols) > 1:
-                            rk_list.append(rk[cols])
-                        break
-            if rk_list:
-                all_rk = pd.concat(rk_list).drop_duplicates(subset=["team"], keep="last")
-                df = df.merge(all_rk, on="team", how="left")
+                        for _, row in rk.iterrows():
+                            t = int(row["team"])
+                            if (t, fam) not in team_fam_data:
+                                team_fam_data[(t, fam)] = {
+                                    "sortOrder1": row.get("sortOrder1"),
+                                    "RS": row.get("RS")
+                                }
+            
+            if team_fam_data:
+                fam_rk_rows = [{"team": k[0], "ev_family": k[1], **v} for k, v in team_fam_data.items()]
+                all_fam_rk = pd.DataFrame(fam_rk_rows)
+                
+                # Match with teams in our current view
+                merged_rk = team_fams.merge(all_fam_rk, on=["team", "ev_family"], how="inner")
+                
+                # Sum sortOrder1 per team across all families
+                so1_sum = merged_rk.groupby("team")["sortOrder1"].sum().reset_index()
+                
+                # Get RS from the latest family
+                last_rk = last_fam_per_team.merge(all_fam_rk, left_on=["team", "last_family"], 
+                                                   right_on=["team", "ev_family"], how="left")
+                rs_latest = last_rk[["team", "RS"]]
+                
+                stats_df = so1_sum.merge(rs_latest, on="team", how="outer")
+                df = df.merge(stats_df, on="team", how="left")
         except Exception:
             pass
 
@@ -2681,8 +2700,15 @@ with tab_rank:
                             df_ev = None
                     if df_ev is not None and not df_ev.empty:
                         df_ev = tidy_epa_inline_df(df_ev)
-
-                        st.dataframe(df_ev, use_container_width=True, hide_index=True)
+                        st.dataframe(df_ev, use_container_width=True, hide_index=True,
+                                     column_config={
+                                         "TBP1": st.column_config.NumberColumn(format="%.2f"),
+                                         "EPA": st.column_config.NumberColumn(format="%.2f"),
+                                         "npOPR": st.column_config.NumberColumn(format="%.2f"),
+                                         "Auto EPA": st.column_config.NumberColumn(format="%.2f"),
+                                         "Teleop EPA": st.column_config.NumberColumn(format="%.2f"),
+                                         "Endgame EPA": st.column_config.NumberColumn(format="%.2f")
+                                     })
                     else:
                         st.info("No games detected for this team in the selected season/country filter.")
 
