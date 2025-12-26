@@ -8,6 +8,10 @@ import math
 # Everything else identical to 13n19c.
 
 import streamlit as st
+
+APP_TITLE = "MISHMASH Scouting platform - Version 13n21 (V10i) (updated: 07.09.2025)"
+st.set_page_config(page_title=APP_TITLE, layout="wide")
+
 import typing as t
 
 from datetime import datetime
@@ -1251,7 +1255,6 @@ def compute_advancement_table(ev_view, base, teams_master, country, season, adv_
     return summary, per_team_detail
 
 
-APP_TITLE = "MISHMASH Scouting platform - Version 13n21 (V10i) (updated: 07.09.2025)"
 BASE_URL = "https://ftc-api.firstinspires.org"
 TIMEOUT = 25
 TEAMS_PER_ALLIANCE = 2
@@ -2335,7 +2338,6 @@ def team_event_breakdown(season: int, team: int, base: pd.DataFrame, ev_view: pd
 
 
 # ---------- UI ----------
-st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.caption("Build: **V8** — single-event ranking-only, cached Adv tab")
 
 # ---- Manual refresh for cached computations ----
@@ -2925,19 +2927,22 @@ def endgame_points_by_team(season: int, event_code: str, user: str, token: str):
 # ---------- FIX: Definition of _ensure_endgame_epa ----------
 def _ensure_endgame_epa(df: pd.DataFrame, endgame_override=None, teleop_override=None) -> pd.DataFrame:
     """
-    Overrides EPA component columns in a DataFrame if override series are provided.
-    This ensures the display uses more precise, event-specific averages when available.
+    Overrides EPA component columns in a DataFrame if override series/dicts are provided.
+    The overrides should be mappings from team number to the component value.
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
     df_out = df.copy()
+    # Handle team column name variations
+    t_col = 'team' if 'team' in df_out.columns else ('Team' if 'Team' in df_out.columns else None)
+    
+    if t_col:
+        if endgame_override is not None and not (isinstance(endgame_override, (pd.Series, dict)) and len(endgame_override) == 0):
+            df_out["EPA_Endgame"] = pd.to_numeric(df_out[t_col], errors='coerce').map(endgame_override).fillna(df_out.get("EPA_Endgame", np.nan))
 
-    if endgame_override is not None and not endgame_override.empty:
-        df_out["EPA_Endgame"] = df_out["team"].map(endgame_override).fillna(df_out["EPA_Endgame"])
-
-    if teleop_override is not None and not teleop_override.empty:
-        df_out["EPA_Teleop"] = df_out["team"].map(teleop_override).fillna(df_out["EPA_Teleop"])
+        if teleop_override is not None and not (isinstance(teleop_override, (pd.Series, dict)) and len(teleop_override) == 0):
+            df_out["EPA_Teleop"] = pd.to_numeric(df_out[t_col], errors='coerce').map(teleop_override).fillna(df_out.get("EPA_Teleop", np.nan))
 
     return df_out
 
@@ -3139,8 +3144,8 @@ with tab_single:
                             float)
                         end_override = _parse_team.map(eg_series)
                         tele_override = _parse_team.map(tl_series)
-                    rank_df2 = _ensure_endgame_epa(rank_df2, endgame_override=end_override,
-                                                   teleop_override=tele_override)
+                    rank_df2 = _ensure_endgame_epa(rank_df2, endgame_override=eg_series,
+                                                   teleop_override=tl_series)
 
                 except Exception:
                     pass
@@ -3272,3 +3277,5 @@ with tab_single:
                     c[8].markdown(
                         f"<div class='mae-right'>{getattr(row, 'RECORD', '') or getattr(row, 'Record', '')}</div>",
                         unsafe_allow_html=True)
+
+                    
